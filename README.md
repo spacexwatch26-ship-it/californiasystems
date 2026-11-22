@@ -70,16 +70,19 @@ Direct Messages intent enabled to receive answers.
 
 ## Logging and privacy
 
-The bot records guild message edit/delete events (including message text),
-member join/leave/update, role creation and assignment changes, channel/emoji
-changes, bans, voice joins/leaves, slash-command usage, webhook events, and
-bot-side actions it performs. Discord
-only exposes events available to the bot's enabled gateway intents and server
-permissions; it cannot see private messages or ephemeral responses, and Discord
-does not provide every action or actor detail as a gateway event. New message
-creation is intentionally not logged; deleted/edited message content is retained
-in the local SQLite database. Messages and reactions in the dedicated 911 channel
-are not copied to the general audit channel.
+Discord activity logs are posted for role creation/deletion and role assignment,
+channel creation/deletion, member join/leave, voice join/leave, emoji
+creation/deletion, and message edit/delete (including bulk deletion). These
+posts use the audit banner and are routed to their configured category channels.
+New message creation, role removal, channel/member/emoji updates, bans, and
+other unlisted activity remain suppressed from Discord.
+Game-event routing is unchanged: 911 calls go only to their dedicated channel,
+and non-911 game events remain stored locally without Discord posts.
+Discord only exposes events available to the bot's enabled gateway intents and
+server permissions; it cannot see private messages or ephemeral responses, and
+does not provide every action or actor detail as a gateway event. Message
+content is retained in the local SQLite database. Messages and reactions in the
+dedicated 911 channel are not copied to the general audit channel.
 Restrict access to both channels and the database, and follow your community's
 notice and retention rules.
 

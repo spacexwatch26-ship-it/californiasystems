@@ -87,6 +87,6 @@ export function createPunishmentMessage(details: PunishmentCardDetails): Message
       new AttachmentBuilder(resolve(process.cwd(), "assets", PUNISHMENT_TOP_IMAGE), { name: PUNISHMENT_TOP_IMAGE }),
       new AttachmentBuilder(resolve(process.cwd(), "assets", PUNISHMENT_BOTTOM_IMAGE), { name: PUNISHMENT_BOTTOM_IMAGE }),
     ],
-    allowedMentions: { parse: [] },
+    allowedMentions: { parse: [], users: [details.targetId] },
   };
 }

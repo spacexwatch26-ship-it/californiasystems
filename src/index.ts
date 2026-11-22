@@ -229,7 +229,7 @@ client.on("roleCreate", (role) => {
 });
 
 client.on("roleDelete", (role) => {
-  logEvent("role removed", `Role ${role.name} (${role.id}) was deleted.`, { guildId: role.guild.id, subjectId: role.id });
+  logEvent("role deleted", `Role ${role.name} (${role.id}) was deleted.`, { guildId: role.guild.id, subjectId: role.id });
 });
 
 client.on("emojiCreate", (emoji) => {

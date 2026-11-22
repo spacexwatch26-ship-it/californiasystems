@@ -254,7 +254,7 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
   assert.equal(sent[0].channelId, punishmentChannelId);
   const publicMessage = sent[0].message;
   assert.ok((publicMessage.flags & MessageFlags.IsComponentsV2) !== 0);
-  assert.deepEqual(publicMessage.allowedMentions, { parse: [] });
+  assert.deepEqual(publicMessage.allowedMentions, { parse: [], users: [target.id] });
   assert.deepEqual(publicMessage.files.map((file) => file.name), [
     "CSRP-Punishment-Top.png",
     "CSRP-Punishment-Bottom.png",
@@ -678,16 +678,28 @@ test("audit events route to their configured category channels", async () => {
     ["slash command", punishmentLogChannelId, "/punishment-history invoked by <@user>"],
     ["slash command", punishmentLogChannelId, "/punishment-void invoked by <@user>"],
     ["message created", null],
-    ["message edited", null],
-    ["message deleted", null],
-    ["messages bulk deleted", null],
+    ["message edited", "test-message-log-channel"],
+    ["message deleted", "test-message-log-channel"],
+    ["messages bulk deleted", "test-message-log-channel"],
     ["reaction added", null],
     ["button interaction", "test-ticket-log-channel", 'Button "ticket:create" clicked'],
-    ["member joined", null],
-    ["channel created", null],
+    ["member joined", "test-member-log-channel"],
+    ["member left", "test-member-log-channel"],
+    ["member updated", null],
+    ["channel created", "test-channel-log-channel"],
+    ["channel deleted", "test-channel-log-channel"],
+    ["channel updated", null],
+    ["role created", "test-role-log-channel"],
+    ["role deleted", "test-role-log-channel"],
+    ["role added", "test-role-log-channel"],
+    ["role removed", null],
     ["role updated", null],
+    ["voice joined", "test-voice-log-channel"],
+    ["voice left", "test-voice-log-channel"],
     ["voice state updated", null],
-    ["emoji created", null],
+    ["emoji created", "test-emoji-log-channel"],
+    ["emoji deleted", "test-emoji-log-channel"],
+    ["emoji updated", null],
   ];
 
   for (const [eventType, channelId, details = "test event"] of cases) {
@@ -703,6 +715,13 @@ test("audit events route to their configured category channels", async () => {
   }
   assert.equal(delivered[0].message.files[0].name, "CSRP-Bottom.png");
   assert.equal(delivered[0].message.components[0].toJSON().components.filter((component) => component.type === 12).length, 1);
+  const categoryLog = delivered.find((entry) => entry.id === "test-message-log-channel").message;
+  assert.deepEqual(categoryLog.files.map((file) => file.name), ["CSRP-Audit.png", "CSRP-Bottom.png"]);
+  const categoryComponents = categoryLog.components[0].toJSON().components;
+  assert.equal(categoryComponents[0].items[0].media.url, "attachment://CSRP-Audit.png");
+  assert.match(categoryComponents[2].content, /## Message Edited/);
+  assert.match(categoryComponents[2].content, /- \*\*Time:\*\* <t:\d+:F>/);
+  assert.equal(categoryComponents[4].items[0].media.url, "attachment://CSRP-Bottom.png");
 });
 
 test("moderator applications use the command channel, DM form, review actions, and matching results", async () => {

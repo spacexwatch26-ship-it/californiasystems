@@ -17,6 +17,23 @@ import { config } from "./config.js";
 import { saveDiscordEvent } from "./database.js";
 
 const LOG_FOOTER_IMAGE = "CSRP-Bottom.png";
+const AUDIT_BANNER_IMAGE = "CSRP-Audit.png";
+const categoryLogEvents = new Set([
+  "channel created",
+  "channel deleted",
+  "emoji created",
+  "emoji deleted",
+  "member joined",
+  "member left",
+  "message edited",
+  "message deleted",
+  "messages bulk deleted",
+  "role added",
+  "role created",
+  "role deleted",
+  "voice joined",
+  "voice left",
+]);
 
 const moderationCommands = new Set([
   "/appeal",
@@ -98,6 +115,7 @@ function isTextChannel(channel: Channel | null): channel is GuildTextBasedChanne
 
 function shouldSuppressDiscordEvent(eventType: string): boolean {
   const type = eventType.toLowerCase();
+  if (categoryLogEvents.has(type)) return false;
   return type === "server audit log"
     || type === "member banned"
     || type === "member unbanned"
@@ -118,25 +136,59 @@ function shouldSuppressDiscordEvent(eventType: string): boolean {
     || type.startsWith("in-game ");
 }
 
-function createLogMessage(title: string, details: string, color = 0x3478c8): MessageCreateOptions {
-  const container = new ContainerBuilder()
-    .setAccentColor(color)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${title}\n${details}\n\n-# California State Roleplay`.slice(0, 4000)),
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large))
-    .addMediaGalleryComponents(
-      new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder()
-          .setURL(`attachment://${LOG_FOOTER_IMAGE}`)
-          .setDescription("California State Roleplay footer"),
-      ),
-    );
+function categoryLogTitle(eventType: string): string {
+  switch (eventType.toLowerCase()) {
+    case "role added": return "Role Added to Member";
+    case "messages bulk deleted": return "Messages Deleted";
+    default: return eventType.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+}
+
+function createLogMessage(
+  title: string,
+  details: string,
+  color = 0x3478c8,
+  categoryLog = false,
+): MessageCreateOptions {
+  const container = new ContainerBuilder().setAccentColor(color);
+  const files: AttachmentBuilder[] = [];
+
+  if (categoryLog) {
+    container
+      .addMediaGalleryComponents(
+        new MediaGalleryBuilder().addItems(
+          new MediaGalleryItemBuilder()
+            .setURL(`attachment://${AUDIT_BANNER_IMAGE}`)
+            .setDescription("California State Roleplay audit banner"),
+        ),
+      )
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large));
+    files.push(new AttachmentBuilder(resolve(process.cwd(), "assets", AUDIT_BANNER_IMAGE), { name: AUDIT_BANNER_IMAGE }));
+  }
+
+  const body = categoryLog
+    ? [
+        details.split(/\r?\n/).filter(Boolean).map((line) => `- ${line}`).join("\n"),
+        `- **Time:** <t:${Math.floor(Date.now() / 1000)}:F>`,
+      ].filter(Boolean).join("\n")
+    : details;
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`## ${title}\n${body}\n\n-# California State Roleplay`.slice(0, 4000)),
+  );
+  container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large));
+  container.addMediaGalleryComponents(
+    new MediaGalleryBuilder().addItems(
+      new MediaGalleryItemBuilder()
+        .setURL(`attachment://${LOG_FOOTER_IMAGE}`)
+        .setDescription("California State Roleplay footer"),
+    ),
+  );
+  files.push(new AttachmentBuilder(resolve(process.cwd(), "assets", LOG_FOOTER_IMAGE), { name: LOG_FOOTER_IMAGE }));
 
   return {
     flags: MessageFlags.IsComponentsV2,
     components: [container],
-    files: [new AttachmentBuilder(resolve(process.cwd(), "assets", LOG_FOOTER_IMAGE), { name: LOG_FOOTER_IMAGE })],
+    files,
     allowedMentions: { parse: [] },
   };
 }
@@ -154,7 +206,13 @@ export async function audit(
   if (!isTextChannel(channel)) {
     throw new Error(`Configured log channel ${channelId} is not a guild text channel.`);
   }
-  await channel.send(createLogMessage(`Audit · ${eventType}`, details));
+  const categoryLog = categoryLogEvents.has(eventType.toLowerCase());
+  await channel.send(createLogMessage(
+    categoryLog ? categoryLogTitle(eventType) : `Audit · ${eventType}`,
+    details,
+    0x3478c8,
+    categoryLog,
+  ));
 }
 
 export async function send911(client: Client, title: string, details: string): Promise<void> {
