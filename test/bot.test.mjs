@@ -77,6 +77,11 @@ legacyDatabase.exec(`
 legacyDatabase.close();
 
 const { executeCommand, getCommandData, SESSION_COMMAND_ROLE_ID } = await import("../dist/commands.js");
+const {
+  createGuidelinesPanelMessage,
+  executeGuidelinesButton,
+  getGuidelinesRuleCounts,
+} = await import("../dist/guidelines.js");
 const { database } = await import("../dist/database.js");
 const { audit } = await import("../dist/logging.js");
 const { addCalendarMonths } = await import("../dist/punishment.js");
@@ -149,6 +154,78 @@ test("bot messages are Components V2 with mentions disabled", () => {
   assert.equal(panel.components?.[0]?.toJSON().components?.[1]?.type, 1);
 });
 
+test("guidelines panel includes private regulation readers and both Terms links", () => {
+  const message = createGuidelinesPanelMessage();
+  const component = message.components[0].toJSON();
+  const text = component.components
+    .filter((entry) => entry.type === 10)
+    .map((entry) => entry.content)
+    .join("\n");
+  const buttons = component.components
+    .filter((entry) => entry.type === 1)
+    .flatMap((entry) => entry.components);
+  const linkButtons = buttons.filter((button) => button.style === 5);
+
+  assert.ok((message.flags & MessageFlags.IsComponentsV2) !== 0);
+  assert.match(text, /All members must follow Discord's Terms of Service and Roblox's Terms of Use/);
+  assert.match(text, /Banned Weapons.*Coming soon/);
+  assert.deepEqual(getGuidelinesRuleCounts(), { discord: 53, ingame: 63 });
+  assert.deepEqual(
+    linkButtons.map((button) => button.url),
+    ["https://discord.com/terms", "https://www.roblox.com/info/terms"],
+  );
+  assert.deepEqual(message.files.map((file) => file.name), ["CSRP-Guidelines.png"]);
+});
+
+test("/guidelines posts the public panel and privately confirms it", async () => {
+  const posted = [];
+  const replies = [];
+  const actions = [];
+  await executeCommand({
+    commandName: "guidelines",
+    user: { id: "guidelines-admin" },
+    memberPermissions: { has: () => true },
+    deferred: true,
+    channelId: "guidelines-channel",
+    channel: { send: async (message) => { posted.push(message); } },
+    editReply: async (message) => { replies.push(message); },
+  }, actions);
+
+  assert.equal(posted.length, 1);
+  assert.ok((posted[0].flags & MessageFlags.IsComponentsV2) !== 0);
+  assert.match(replies[0].components[0].toJSON().components[0].content, /Guidelines panel posted/);
+  assert.deepEqual(actions, ["Guidelines panel posted in <#guidelines-channel>."]);
+});
+
+test("guidelines readers are private, paginated, and omit the unfinished in-game 10.6", async () => {
+  let replyPayload;
+  let updatePayload;
+  const interaction = {
+    customId: "guidelines:read:ingame",
+    reply: async (payload) => { replyPayload = payload; },
+    update: async (payload) => { updatePayload = payload; },
+  };
+
+  assert.equal(await executeGuidelinesButton(interaction), true);
+  assert.deepEqual(replyPayload.flags, v2Flags(true));
+  const firstPageText = replyPayload.components[0].toJSON().components
+    .filter((entry) => entry.type === 10)
+    .map((entry) => entry.content)
+    .join("\n");
+  assert.match(firstPageText, /Official Community Regulations & Standards/);
+  assert.match(firstPageText, /This guidelines view is private/);
+
+  interaction.customId = "guidelines:page:ingame:10";
+  await executeGuidelinesButton(interaction);
+  const lastPageText = updatePayload.components[0].toJSON().components
+    .filter((entry) => entry.type === 10)
+    .map((entry) => entry.content)
+    .join("\n");
+  assert.match(lastPageText, /10\.5 Permanent Removal/);
+  assert.match(lastPageText, /source ends with an unfinished “10\.6”/);
+  assert.doesNotMatch(lastPageText, /(?:^|\n)10\.6(?:\s|$)/);
+});
+
 test("slash command definitions serialize without duplicate names", () => {
   const commands = getCommandData().map((command) => command.toJSON());
   const names = commands.map((command) => command.name);
@@ -159,6 +236,7 @@ test("slash command definitions serialize without duplicate names", () => {
   assert.ok(names.includes("shift-management"));
   assert.ok(names.includes("shift-leadership"));
   assert.ok(names.includes("shift-admin"));
+  assert.ok(names.includes("guidelines"));
   assert.ok(names.includes("app-open"));
   assert.ok(names.includes("app-close"));
   assert.ok(!names.includes("shift"));

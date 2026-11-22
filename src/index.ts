@@ -9,6 +9,7 @@ import {
 import { config } from "./config.js";
 import { executeCommand, executeTicketButton } from "./commands.js";
 import { executeShiftButton } from "./shifts.js";
+import { executeGuidelinesButton } from "./guidelines.js";
 import { database } from "./database.js";
 import { audit } from "./logging.js";
 import { v2Flags, v2Message } from "./ui.js";
@@ -350,6 +351,8 @@ client.on("interactionCreate", (interaction) => {
     }
     void executeModeratorApplicationButton(interaction).then(async (applicationHandled) => {
       if (applicationHandled) return;
+      const guidelinesHandled = await executeGuidelinesButton(interaction);
+      if (guidelinesHandled) return;
       const handled = await executeShiftButton(interaction);
       if (handled) return;
       const sessionHandled = await executeSessionVoteButton(interaction);

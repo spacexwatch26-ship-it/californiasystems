@@ -68,6 +68,18 @@ results post and a DM to include in a ticket for staff onboarding.
 applications already in progress can still be submitted. The bot needs the
 Direct Messages intent enabled to receive answers.
 
+## Guidelines panel
+
+Administrators can use `/guidelines` to post the public Components V2 guidelines
+panel in the current channel. The Discord and in-game regulation buttons open
+private, paginated views. The panel also links to Discord's Terms of Service and
+Roblox's Terms of Use. Banned weapons, vehicles, and roleplays remain marked
+“Coming soon” until their lists are provided. The in-game source ends with an
+unfinished `10.6` entry, so that incomplete entry is omitted rather than
+inventing a rule. `assets/CSRP-Guidelines.png` currently contains a copy of the
+existing poll artwork as a temporary banner; replace that dedicated file with
+the supplied guidelines artwork without changing the poll banner.
+
 ## Logging and privacy
 
 Discord activity logs are posted for role creation/deletion and role assignment,

@@ -45,6 +45,7 @@ import {
 } from "./shifts.js";
 import { v2ButtonMessage, v2Flags, v2Message } from "./ui.js";
 import { addCalendarMonths, createPunishmentMessage } from "./punishment.js";
+import { createGuidelinesPanelMessage } from "./guidelines.js";
 import { randomInt, randomUUID } from "node:crypto";
 import { closeModeratorApplications, openModeratorApplications } from "./moderator-application.js";
 
@@ -113,6 +114,7 @@ command("giveaway", "Create and launch a giveaway")
   .addSubcommand((subcommand) => subcommand.setName("create").setDescription("Create a giveaway")
     .addStringOption((option) => option.setName("prize").setDescription("Giveaway prize").setRequired(true).setMaxLength(200)));
 command("information-panel", "Post the server information panel");
+command("guidelines", "Post the California State Roleplay guidelines panel");
 command("self-roles", "Post the self-role panel");
 
 command("infract", "Manage staff infractions")
@@ -853,6 +855,18 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
     await postInCurrentChannel(interaction, title, body);
     await auditAction(interaction.client, interaction, `${title} panel posted.`);
     await reply(interaction, "Panel posted", `The ${title.toLowerCase()} panel was posted.`);
+    return;
+  }
+
+  if (commandName === "guidelines") {
+    if (!(await requireAdmin(interaction))) return;
+    const channel = interaction.channel;
+    if (!channel || !("send" in channel)) {
+      throw new Error("The guidelines panel can only be posted in a message channel.");
+    }
+    await channel.send(createGuidelinesPanelMessage());
+    await auditAction(interaction.client, interaction, `Guidelines panel posted in <#${interaction.channelId}>.`);
+    await reply(interaction, "Guidelines panel posted", `The guidelines panel was posted in <#${interaction.channelId}>.`);
     return;
   }
 
