@@ -8,6 +8,7 @@ import {
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
   MessageFlags,
+  SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
@@ -394,6 +395,12 @@ function panelButton(label: string, customId: string): ButtonBuilder {
   return new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(ButtonStyle.Primary);
 }
 
+function panelSection(title: string, detail: string, customId: string): SectionBuilder {
+  return new SectionBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${title}**\n${detail}`))
+    .setButtonAccessory(panelButton("Read", customId));
+}
+
 export function createGuidelinesPanelMessage(): MessageCreateOptions {
   const counts = getGuidelinesRuleCounts();
   const container = new ContainerBuilder()
@@ -413,28 +420,18 @@ export function createGuidelinesPanelMessage(): MessageCreateOptions {
     )
     .addSeparatorComponents(separator())
     .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `### Regulations\n\n📞 **Discord Regulations** · ${counts.discord} rules\n🛡️ **In-Game Regulations** · ${counts.ingame} rules`,
-      ),
+      new TextDisplayBuilder().setContent("### Regulations"),
     )
-    .addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        panelButton("Read Discord Regulations", `${GUIDELINES_PREFIX}read:discord`),
-        panelButton("Read In-Game Regulations", `${GUIDELINES_PREFIX}read:ingame`),
-      ),
+    .addSectionComponents(
+      panelSection("📞 Discord Regulations", `${counts.discord} rules`, `${GUIDELINES_PREFIX}read:discord`),
+      panelSection("🛡️ In-Game Regulations", `${counts.ingame} rules`, `${GUIDELINES_PREFIX}read:ingame`),
     )
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        "### Banned Items\n\n🔫 **Banned Weapons** · Coming soon\n🚘 **Banned Vehicles** · Coming soon\n🎭 **Banned Roleplays** · Coming soon",
-      ),
-    )
-    .addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        panelButton("Weapons", `${GUIDELINES_PREFIX}pending:weapons`),
-        panelButton("Vehicles", `${GUIDELINES_PREFIX}pending:vehicles`),
-        panelButton("Roleplays", `${GUIDELINES_PREFIX}pending:roleplays`),
-      ),
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Banned Items"))
+    .addSectionComponents(
+      panelSection("🔫 Banned Weapons", "Coming soon", `${GUIDELINES_PREFIX}pending:weapons`),
+      panelSection("🚘 Banned Vehicles", "Coming soon", `${GUIDELINES_PREFIX}pending:vehicles`),
+      panelSection("🎭 Banned Roleplays", "Coming soon", `${GUIDELINES_PREFIX}pending:roleplays`),
     )
     .addSeparatorComponents(separator())
     .addTextDisplayComponents(

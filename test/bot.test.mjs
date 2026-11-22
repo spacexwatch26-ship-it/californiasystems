@@ -157,19 +157,38 @@ test("bot messages are Components V2 with mentions disabled", () => {
 test("guidelines panel includes private regulation readers and both Terms links", () => {
   const message = createGuidelinesPanelMessage();
   const component = message.components[0].toJSON();
+  const sections = component.components.filter((entry) => entry.type === 9);
   const text = component.components
-    .filter((entry) => entry.type === 10)
-    .map((entry) => entry.content)
+    .flatMap((entry) => entry.type === 10
+      ? [entry.content]
+      : entry.type === 9
+        ? entry.components.filter((sectionEntry) => sectionEntry.type === 10).map((sectionEntry) => sectionEntry.content)
+        : [])
     .join("\n");
   const buttons = component.components
     .filter((entry) => entry.type === 1)
     .flatMap((entry) => entry.components);
   const linkButtons = buttons.filter((button) => button.style === 5);
+  const sectionButtons = sections.map((section) => section.accessory);
 
   assert.ok((message.flags & MessageFlags.IsComponentsV2) !== 0);
   assert.match(text, /All members must follow Discord's Terms of Service and Roblox's Terms of Use/);
-  assert.match(text, /Banned Weapons.*Coming soon/);
+  assert.match(text, /Banned Weapons\*\*\nComing soon/);
   assert.deepEqual(getGuidelinesRuleCounts(), { discord: 53, ingame: 63 });
+  assert.deepEqual(
+    sectionButtons.map((button) => button.label),
+    ["Read", "Read", "Read", "Read", "Read"],
+  );
+  assert.deepEqual(
+    sectionButtons.map((button) => button.custom_id),
+    [
+      "guidelines:read:discord",
+      "guidelines:read:ingame",
+      "guidelines:pending:weapons",
+      "guidelines:pending:vehicles",
+      "guidelines:pending:roleplays",
+    ],
+  );
   assert.deepEqual(
     linkButtons.map((button) => button.url),
     ["https://discord.com/terms", "https://www.roblox.com/info/terms"],
