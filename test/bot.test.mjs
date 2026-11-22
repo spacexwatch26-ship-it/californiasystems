@@ -145,10 +145,40 @@ test("slash command definitions serialize without duplicate names", () => {
   assert.ok(names.includes("app-open"));
   assert.ok(names.includes("app-close"));
   assert.ok(!names.includes("shift"));
+  const say = commands.find((command) => command.name === "say");
+  assert.equal(say.options.find((option) => option.name === "embed").required, true);
   const shiftAdmin = commands.find((command) => command.name === "shift-admin");
   assert.ok(shiftAdmin.options.some((option) => option.name === "remove-time"));
   assert.equal(new Set(names).size, names.length);
   assert.ok(names.length >= 30);
+});
+
+test("/say can post an embed or a plain message", async () => {
+  const sent = [];
+  for (const asEmbed of [true, false]) {
+    const options = {
+      getString: () => "Test announcement",
+      getBoolean: (name) => name === "embed" ? asEmbed : false,
+    };
+    await executeCommand({
+      commandName: "say",
+      user: { id: "say-admin" },
+      memberPermissions: { has: () => true },
+      options,
+      channelId: "say-channel",
+      channel: { send: async (message) => { sent.push(message); } },
+      reply: async () => {},
+    }, []);
+  }
+
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].embeds[0].toJSON().title, "California State Roleplay");
+  assert.equal(sent[0].embeds[0].toJSON().description, "Test announcement");
+  assert.equal(sent[0].content, undefined);
+  assert.deepEqual(sent[0].allowedMentions, { parse: [] });
+  assert.equal(sent[1].content, "Test announcement");
+  assert.equal(sent[1].embeds, undefined);
+  assert.deepEqual(sent[1].allowedMentions, { parse: [] });
 });
 
 test("session-end announcement matches the branded session card and offers notification opt-in", () => {

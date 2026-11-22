@@ -1,6 +1,7 @@
 import {
   ChannelType,
   ContainerBuilder,
+  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SeparatorBuilder,
@@ -210,6 +211,7 @@ command("roles", "Role management and role panel")
 
 command("say", "Send a message through the bot in the current channel")
   .addStringOption((option) => option.setName("message").setDescription("Message to send").setRequired(true).setMaxLength(1800))
+  .addBooleanOption((option) => option.setName("embed").setDescription("Send the message as an embed").setRequired(true))
   .addBooleanOption((option) => option.setName("mentions").setDescription("Allow mentions in the message"));
 command("session-start", "Start a roleplay session");
 command("session-vote", "Post the California State Roleplay session vote");
@@ -846,13 +848,19 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
   if (commandName === "say") {
     if (!(await requireAdmin(interaction))) return;
     const text = interaction.options.getString("message", true);
+    const asEmbed = interaction.options.getBoolean("embed", true);
     const allowMentions = interaction.options.getBoolean("mentions") ?? false;
     const channel = interaction.channel;
     if (!channel || !("send" in channel)) throw new Error("This command can only be used in a message channel.");
-    await channel.send({
-      ...v2Message("California State Roleplay", text),
-      allowedMentions: allowMentions ? { parse: ["users", "roles", "everyone"] } : { parse: [] },
-    });
+    await channel.send(asEmbed
+      ? {
+          embeds: [new EmbedBuilder().setColor(0x3478c8).setTitle("California State Roleplay").setDescription(text)],
+          allowedMentions: allowMentions ? { parse: ["users", "roles", "everyone"] } : { parse: [] },
+        }
+      : {
+          content: text,
+          allowedMentions: allowMentions ? { parse: ["users", "roles", "everyone"] } : { parse: [] },
+        });
     await auditAction(interaction.client, interaction, `Sent a bot message in <#${interaction.channelId}>.`);
     await reply(interaction, "Message sent", "Your message was posted.");
     return;
