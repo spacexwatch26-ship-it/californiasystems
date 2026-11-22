@@ -96,6 +96,8 @@ when `ERLC_SERVER_KEY` is configured, and one dropdown containing Quick Join
 and session-ping opt-in/opt-out choices. Live counts refresh every minute, with
 a relative “Last updated” timestamp. The poll pings the Session Ping and
 Community Member roles; session-start announcements ping the Session Ping role.
+`/session-start` posts the same live server-status card and session banner as a
+six-vote poll and is included in the once-per-minute status refresh.
 Session-end posts use the same branded banner/footer layout and include a
 dropdown to opt into the Session Ping role for future notifications. Refresh
 edits do not send additional pings, and the announcement does not include staff

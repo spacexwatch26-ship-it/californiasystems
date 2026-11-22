@@ -22,7 +22,11 @@ import {
   createSessionVoteMessage,
   saveSessionPoll,
 } from "./session-vote.js";
-import { createSessionEndMessage, SESSION_PING_ROLE_ID } from "./session-announcement.js";
+import {
+  createSessionEndMessage,
+  publishManualSessionStartAnnouncement,
+  SESSION_PING_ROLE_ID,
+} from "./session-announcement.js";
 import {
   clockMemberOut,
   createShiftManagementMessage,
@@ -918,18 +922,36 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
     return;
   }
 
-  if (commandName === "session-start" || commandName === "session-low") {
+  if (commandName === "session-start") {
+    if (!(await requireSessionCommandRole(interaction))) return;
+    if (!interaction.guildId) {
+      await reply(interaction, "Server only", "Session announcements can only be posted in a server.");
+      return;
+    }
+    const messageId = await publishManualSessionStartAnnouncement(interaction.client, interaction.guildId);
+    await auditAction(
+      interaction.client,
+      interaction,
+      `session-start announcement posted in <#${config.sessionAnnouncementChannelId}> (message ${messageId}).`,
+    );
+    await reply(
+      interaction,
+      "Session started",
+      `The session announcement was sent to <#${config.sessionAnnouncementChannelId}> and will refresh every minute.`,
+    );
+    return;
+  }
+
+  if (commandName === "session-low") {
     if (!(await requireSessionCommandRole(interaction))) return;
     const channel = await interaction.client.channels.fetch(config.sessionAnnouncementChannelId);
     if (!channel || !channel.isTextBased() || channel.isDMBased() || channel.guildId !== interaction.guildId) {
       await reply(interaction, "Session announcement unavailable", "The configured session announcement channel is not a text channel in this server.");
       return;
     }
-    const body = commandName === "session-start"
-      ? "A California State Roleplay session is starting. Join in-game and follow staff directions."
-      : "There are currently few players in-game. Join if you would like to participate in California State Roleplay.";
+    const body = "There are currently few players in-game. Join if you would like to participate in California State Roleplay.";
     await channel.send({
-      ...v2Message("Session announcement", `<@&${SESSION_PING_ROLE_ID}>\n${body}`),
+      ...v2Message("Low player count", `<@&${SESSION_PING_ROLE_ID}>\n${body}`),
       allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID] },
     });
     await auditAction(interaction.client, interaction, `${commandName} announcement posted in <#${channel.id}>.`);

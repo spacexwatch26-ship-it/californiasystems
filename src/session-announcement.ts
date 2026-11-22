@@ -170,6 +170,35 @@ export function createSessionStartMessage(stats: SessionServerStats, lastUpdated
   };
 }
 
+async function postSessionStartMessage(client: Client, fetcher: typeof fetch) {
+  const channel = await client.channels.fetch(config.sessionAnnouncementChannelId);
+  if (!isGuildTextChannel(channel)) {
+    throw new Error(`Session announcement channel ${config.sessionAnnouncementChannelId} is not a text channel in the configured server.`);
+  }
+  const stats = await loadSessionServerStats(fetcher);
+  const message = await channel.send(createSessionStartMessage(stats));
+  return { channel, message };
+}
+
+export async function publishManualSessionStartAnnouncement(
+  client: Client,
+  guildId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> {
+  if (guildId !== config.guildId) {
+    throw new Error("Manual session announcements can only be posted in the configured server.");
+  }
+  const { channel, message } = await postSessionStartMessage(client, fetcher);
+  const result = database.prepare(`
+    INSERT INTO manual_session_announcements (message_id, guild_id, channel_id)
+    VALUES (?, ?, ?)
+  `).run(message.id, guildId, channel.id);
+  if (Number(result.changes) !== 1) {
+    throw new Error(`Could not save manual session announcement ${message.id} for periodic updates.`);
+  }
+  return message.id;
+}
+
 export function createSessionEndMessage(): MessageCreateOptions {
   const sessionOptions = new StringSelectMenuBuilder()
     .setCustomId(SESSION_OPTIONS_SELECT_ID)
@@ -252,13 +281,7 @@ export async function sendSessionStartAnnouncement(
       return undefined;
     }
 
-    const channel = await client.channels.fetch(config.sessionAnnouncementChannelId);
-    if (!isGuildTextChannel(channel)) {
-      throw new Error(`Session announcement channel ${config.sessionAnnouncementChannelId} is not a text channel in the configured server.`);
-    }
-
-    const stats = await loadSessionServerStats(fetcher);
-    const message = await channel.send(createSessionStartMessage(stats));
+    const { message } = await postSessionStartMessage(client, fetcher);
     const saved = database.prepare(`
       UPDATE session_polls
       SET session_announcement_message_id = ?, session_announcement_channel_id = ?
@@ -297,7 +320,7 @@ export async function refreshSessionAnnouncements(
   client: Client,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
-  const announcements = database.prepare(`
+  const pollAnnouncements = database.prepare(`
     SELECT poll_id, guild_id, session_announcement_message_id, session_announcement_channel_id
     FROM session_polls
     WHERE status = 'reached'
@@ -309,18 +332,35 @@ export async function refreshSessionAnnouncements(
     session_announcement_message_id: string;
     session_announcement_channel_id: string | null;
   }>;
+  const manualAnnouncements = database.prepare(`
+    SELECT message_id, guild_id, channel_id
+    FROM manual_session_announcements
+  `).all() as Array<{ message_id: string; guild_id: string; channel_id: string }>;
+  const announcements = [
+    ...pollAnnouncements.map((announcement) => ({
+      sourceId: announcement.poll_id,
+      guildId: announcement.guild_id,
+      messageId: announcement.session_announcement_message_id,
+      channelId: announcement.session_announcement_channel_id ?? config.sessionAnnouncementChannelId,
+    })),
+    ...manualAnnouncements.map((announcement) => ({
+      sourceId: announcement.message_id,
+      guildId: announcement.guild_id,
+      messageId: announcement.message_id,
+      channelId: announcement.channel_id,
+    })),
+  ];
   if (announcements.length === 0) return;
 
   const stats = await loadSessionServerStats(fetcher);
   for (const announcement of announcements) {
     try {
-      const channelId = announcement.session_announcement_channel_id ?? config.sessionAnnouncementChannelId;
-      const channel = await client.channels.fetch(channelId);
+      const channel = await client.channels.fetch(announcement.channelId);
       if (!isGuildTextChannel(channel)) {
-        throw new Error(`Session announcement channel ${channelId} is not a text channel in the configured server.`);
+        throw new Error(`Session announcement channel ${announcement.channelId} is not a text channel in the configured server.`);
       }
 
-      const message = await channel.messages.fetch(announcement.session_announcement_message_id);
+      const message = await channel.messages.fetch(announcement.messageId);
       const attachments = [...message.attachments.values()];
       const banner = attachments.find((attachment) => attachment.name === SESSION_IMAGE);
       const footer = attachments.find((attachment) => attachment.name === SESSION_FOOTER_IMAGE);
@@ -338,17 +378,17 @@ export async function refreshSessionAnnouncements(
       };
       await message.edit(update);
     } catch (error) {
-      console.error(`Could not refresh session announcement for poll ${announcement.poll_id}:`, error);
+      console.error(`Could not refresh session announcement ${announcement.sourceId}:`, error);
       const errorDetails = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       try {
         saveDiscordEvent({
           eventType: "session announcement update failed",
-          guildId: announcement.guild_id,
-          subjectId: announcement.session_announcement_message_id,
+          guildId: announcement.guildId,
+          subjectId: announcement.messageId,
           details: errorDetails,
         });
       } catch (logError) {
-        console.error(`Could not save the refresh failure for poll ${announcement.poll_id}:`, logError);
+        console.error(`Could not save the refresh failure for session announcement ${announcement.sourceId}:`, logError);
       }
     }
   }

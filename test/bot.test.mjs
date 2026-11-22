@@ -605,6 +605,93 @@ test("session managers post the Components V2 session-end card without a role pi
   assert.deepEqual(replies[0].flags, v2Flags(true));
 });
 
+test("manual session-start uses the six-vote card and refreshes its server status", async () => {
+  const delivered = [];
+  const replies = [];
+  let editedMessage;
+  const message = {
+    id: "manual-session-start-message",
+    attachments: new Map([
+      ["session-banner", { id: "session-banner", name: "CSRP-Session.png", url: "https://cdn.example/session.png" }],
+      ["session-footer", { id: "session-footer", name: "CSRP-Bottom.png", url: "https://cdn.example/footer.png" }],
+    ]),
+    edit: async (payload) => { editedMessage = payload; },
+  };
+  const channel = {
+    id: sessionAnnouncementChannelId,
+    guildId: "test-guild",
+    isTextBased: () => true,
+    isDMBased: () => false,
+    send: async (payload) => {
+      delivered.push(payload);
+      return message;
+    },
+    messages: {
+      fetch: async (id) => {
+        assert.equal(id, message.id);
+        return message;
+      },
+    },
+  };
+  const client = {
+    channels: {
+      fetch: async (id) => {
+        assert.equal(id, sessionAnnouncementChannelId);
+        return channel;
+      },
+    },
+  };
+  let apiCalls = 0;
+  const fetcher = async () => {
+    apiCalls += 1;
+    const currentPlayers = apiCalls === 1 ? 10 : 17;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ CurrentPlayers: currentPlayers, MaxPlayers: 40, Queue: apiCalls === 1 ? [] : [1, 2] }),
+    };
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetcher;
+  try {
+    await executeCommand({
+      commandName: "session-start",
+      user: { id: "session-manager" },
+      guildId: "test-guild",
+      guild: {
+        members: {
+          fetch: async () => ({ roles: { cache: new Map([[SESSION_COMMAND_ROLE_ID, {}]]) } }),
+        },
+      },
+      client,
+      channelId: "invocation-channel",
+      deferred: false,
+      replied: false,
+      reply: async (payload) => { replies.push(payload); },
+    }, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(delivered.length, 1);
+  assert.deepEqual(delivered[0].files.map((file) => file.name), ["CSRP-Session.png", "CSRP-Bottom.png"]);
+  assert.deepEqual(delivered[0].allowedMentions, { parse: [], roles: [SESSION_PING_ROLE_ID] });
+  const initialPanel = delivered[0].components[0].toJSON();
+  assert.equal(initialPanel.components[0].items[0].media.url, "attachment://CSRP-Session.png");
+  assert.match(initialPanel.components[6].content, /> \*\*Players:\*\* `10\/40`/);
+  assert.ok(database.prepare("SELECT message_id FROM manual_session_announcements WHERE message_id = ?").get(message.id));
+  assert.match(replies[0].components[0].toJSON().components[0].content, /will refresh every minute/);
+
+  await refreshSessionAnnouncements(client, fetcher);
+  assert.equal(apiCalls, 2);
+  const refreshedPanel = editedMessage.components[0].toJSON();
+  assert.match(refreshedPanel.components[6].content, /> \*\*Players:\*\* `17\/40`/);
+  assert.match(refreshedPanel.components[6].content, /> \*\*Queue:\*\* `2\/40`/);
+  assert.deepEqual(editedMessage.allowedMentions, { parse: [] });
+  database.prepare("DELETE FROM manual_session_announcements WHERE message_id = ?").run(message.id);
+});
+
 test("session managers post the poll in its configured channel and ping both audience roles", async () => {
   const delivered = [];
   const replies = [];

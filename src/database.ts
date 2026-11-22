@@ -153,6 +153,13 @@ database.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (poll_id, user_id)
   );
+
+  CREATE TABLE IF NOT EXISTS manual_session_announcements (
+    message_id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 const staffRecordColumns = database.prepare("PRAGMA table_info(staff_records)").all() as Array<{ name: string }>;
