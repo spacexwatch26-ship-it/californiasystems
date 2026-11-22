@@ -12,6 +12,8 @@ import { v2ButtonMessage, v2Flags, v2Message } from "../dist/ui.js";
 const databasePath = join(tmpdir(), `california-state-roleplay-${randomUUID()}.sqlite`);
 const sessionPollChannelId = "test-session-poll-channel";
 const sessionAnnouncementChannelId = "test-session-announcement-channel";
+const punishmentChannelId = "test-punishment-channel";
+const punishmentLogChannelId = "test-punishment-log-channel";
 process.env.DISCORD_TOKEN = "test-token";
 process.env.DISCORD_CLIENT_ID = "test-client";
 process.env.DISCORD_GUILD_ID = "test-guild";
@@ -30,6 +32,8 @@ process.env.EMOJI_LOG_CHANNEL_ID = "test-emoji-log-channel";
 process.env.ERLC_911_CHANNEL_ID = "test-911-channel";
 process.env.APPLICATION_REVIEW_CHANNEL_ID = "test-application-review-channel";
 process.env.APPLICATION_RESULTS_CHANNEL_ID = "test-application-results-channel";
+process.env.PUNISHMENT_CHANNEL_ID = punishmentChannelId;
+process.env.PUNISHMENT_LOG_CHANNEL_ID = punishmentLogChannelId;
 process.env.ERLC_SERVER_KEY = "test-server-key";
 process.env.WEBHOOK_SECRET = "test-webhook-secret-with-at-least-32-chars";
 process.env.DATABASE_PATH = databasePath;
@@ -221,21 +225,34 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
   const sent = [];
   const replies = [];
   const actions = [];
+  const client = {
+    channels: {
+      fetch: async (id) => ({
+        id,
+        guildId: "test-guild",
+        isTextBased: () => true,
+        isDMBased: () => false,
+        send: async (message) => { sent.push({ channelId: id, message }); },
+      }),
+    },
+  };
   const target = { id: `punishment-target-${randomUUID()}`, tag: "Target#0001" };
   await executeCommand({
     commandName: "punish",
     user: { id: "punishment-issuer" },
+    guildId: "test-guild",
     memberPermissions: { has: () => true },
     options: {
       getUser: () => target,
       getString: (name) => name === "type" ? "Written Warning" : "Failure to meet quota",
     },
-    channel: { send: async (message) => { sent.push(message); } },
+    client,
     reply: async (payload) => { replies.push(payload); },
   }, actions);
 
   assert.equal(sent.length, 1);
-  const publicMessage = sent[0];
+  assert.equal(sent[0].channelId, punishmentChannelId);
+  const publicMessage = sent[0].message;
   assert.ok((publicMessage.flags & MessageFlags.IsComponentsV2) !== 0);
   assert.deepEqual(publicMessage.allowedMentions, { parse: [] });
   assert.deepEqual(publicMessage.files.map((file) => file.name), [
@@ -285,15 +302,17 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
   await executeCommand({
     commandName: "punish",
     user: { id: "punishment-issuer" },
+    guildId: "test-guild",
     memberPermissions: { has: () => true },
     options: {
       getUser: () => terminationTarget,
       getString: (name) => name === "type" ? "Termination" : "Termination",
     },
-    channel: { send: async (message) => { sent.push(message); } },
+    client,
     reply: async (payload) => { terminationReplies.push(payload); },
   }, []);
-  const terminationComponents = sent[1].components[0].toJSON().components;
+  assert.equal(sent[1].channelId, punishmentChannelId);
+  const terminationComponents = sent[1].message.components[0].toJSON().components;
   const terminationCard = terminationComponents[6].content;
   assert.match(terminationCard, /No expiration \(Termination\)/);
   const terminationId = terminationComponents[2].content.match(/Punishment ID:\*\* (\d{8})/)?.[1];
@@ -654,6 +673,10 @@ test("audit events route to their configured category channels", async () => {
     ["member banned", null],
     ["slash command", "test-command-log-channel", "/ban invoked by <@user>"],
     ["slash command", "test-command-log-channel", "/911 invoked by <@user>"],
+    ["slash command", punishmentLogChannelId, "/punish invoked by <@user>"],
+    ["slash command", punishmentLogChannelId, "/punishment-edit invoked by <@user>"],
+    ["slash command", punishmentLogChannelId, "/punishment-history invoked by <@user>"],
+    ["slash command", punishmentLogChannelId, "/punishment-void invoked by <@user>"],
     ["message created", null],
     ["message edited", null],
     ["message deleted", null],

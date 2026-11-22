@@ -969,8 +969,16 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
     const member = interaction.options.getUser("member", true);
     const punishmentType = interaction.options.getString("type", true);
     const reason = interaction.options.getString("reason", true);
-    const channel = interaction.channel;
-    if (!channel || !("send" in channel)) throw new Error("This command can only be used in a message channel.");
+    const channel = await interaction.client.channels.fetch(config.punishmentChannelId);
+    if (
+      !channel
+      || !channel.isTextBased()
+      || channel.isDMBased()
+      || channel.guildId !== interaction.guildId
+      || !("send" in channel)
+    ) {
+      throw new Error(`Configured punishment channel ${config.punishmentChannelId} is not a text channel in this server.`);
+    }
     const punishment = recordPunishment(member.id, interaction.user.id, punishmentType, reason);
     await channel.send(createPunishmentMessage({
       punishmentId: punishment.id,

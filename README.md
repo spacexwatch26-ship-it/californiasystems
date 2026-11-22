@@ -34,11 +34,15 @@ random value with at least 32 characters. `LOG_CHANNEL_ID` and
 `ERLC_911_CHANNEL_ID` must be distinct text channels in the configured server.
 `APPLICATION_REVIEW_CHANNEL_ID` and `APPLICATION_RESULTS_CHANNEL_ID` default
 to `1573910638202200104` and `1573466220982706327`.
+Punishment cards go to `PUNISHMENT_CHANNEL_ID` (default
+`1573484685948883024`); punishment command logs go to
+`PUNISHMENT_LOG_CHANNEL_ID` (default `1573486551147741356`).
 Set `COMMAND_LOG_CHANNEL_ID` to the channel for all slash-command usage and
-command action logs. Each slash command produces one entry with its action
+command action logs other than punishment commands, which use the dedicated
+punishment log channel. Each slash command produces one entry with its action
 details combined; shift-panel button actions also produce a single command-log
 entry without a duplicate generic button entry. Moderation-event posts are
-disabled; moderation slash commands remain in the combined command log.
+disabled; moderation slash commands remain in their configured command log.
 `MODERATION_LOG_CHANNEL_ID` is accepted for compatibility but is not used.
 Optional message, member, channel, role, voice, and emoji category IDs remain
 accepted for compatibility, but those activity logs are no longer posted to

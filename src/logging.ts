@@ -34,6 +34,13 @@ const moderationCommands = new Set([
   "/resign",
 ]);
 
+const punishmentCommands = new Set([
+  "/punish",
+  "/punishment-edit",
+  "/punishment-history",
+  "/punishment-void",
+]);
+
 function getLogChannelId(eventType: string, details: string): string {
   let type = eventType.toLowerCase();
   if (type === "slash command") {
@@ -41,6 +48,7 @@ function getLogChannelId(eventType: string, details: string): string {
     if (commandName) type = `/${commandName.toLowerCase()}`;
   }
 
+  if (punishmentCommands.has(type)) return config.punishmentLogChannelId;
   if (type === "slash command" || type.startsWith("/")) return config.commandLogChannelId;
 
   if (type === "button interaction") {

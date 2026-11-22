@@ -3,6 +3,8 @@ import { z } from "zod";
 
 const DEFAULT_APPLICATION_REVIEW_CHANNEL_ID = "1573910638202200104";
 const DEFAULT_APPLICATION_RESULTS_CHANNEL_ID = "1573466220982706327";
+const DEFAULT_PUNISHMENT_CHANNEL_ID = "1573484685948883024";
+const DEFAULT_PUNISHMENT_LOG_CHANNEL_ID = "1573486551147741356";
 
 const optionalEnvValue = z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
@@ -28,6 +30,8 @@ const schema = z.object({
   ERLC_911_CHANNEL_ID: z.string().min(1),
   APPLICATION_REVIEW_CHANNEL_ID: optionalEnvValue,
   APPLICATION_RESULTS_CHANNEL_ID: optionalEnvValue,
+  PUNISHMENT_CHANNEL_ID: optionalEnvValue,
+  PUNISHMENT_LOG_CHANNEL_ID: optionalEnvValue,
   ERLC_SERVER_KEY: optionalEnvValue,
   TICKET_STAFF_ROLE_ID: z.string().optional(),
   WEBHOOK_SECRET: z.string().min(32),
@@ -50,6 +54,12 @@ if (applicationReviewChannelId === applicationResultsChannelId) {
   throw new Error("APPLICATION_REVIEW_CHANNEL_ID and APPLICATION_RESULTS_CHANNEL_ID must be different channels.");
 }
 
+const punishmentChannelId = result.data.PUNISHMENT_CHANNEL_ID || DEFAULT_PUNISHMENT_CHANNEL_ID;
+const punishmentLogChannelId = result.data.PUNISHMENT_LOG_CHANNEL_ID || DEFAULT_PUNISHMENT_LOG_CHANNEL_ID;
+if (punishmentChannelId === punishmentLogChannelId) {
+  throw new Error("PUNISHMENT_CHANNEL_ID and PUNISHMENT_LOG_CHANNEL_ID must be different channels.");
+}
+
 export const config = {
   token: result.data.DISCORD_TOKEN,
   clientId: result.data.DISCORD_CLIENT_ID,
@@ -69,6 +79,8 @@ export const config = {
   calls911ChannelId: result.data.ERLC_911_CHANNEL_ID,
   applicationReviewChannelId,
   applicationResultsChannelId,
+  punishmentChannelId,
+  punishmentLogChannelId,
   erlcServerKey: result.data.ERLC_SERVER_KEY || undefined,
   ticketStaffRoleId: result.data.TICKET_STAFF_ROLE_ID || undefined,
   webhookSecret: result.data.WEBHOOK_SECRET,
