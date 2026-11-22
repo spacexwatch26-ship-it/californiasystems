@@ -47,7 +47,10 @@ database.exec(`
     reason TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    revoked_at TEXT
+    revoked_at TEXT,
+    punishment_id TEXT,
+    punishment_type TEXT,
+    expires_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS callsigns (
@@ -150,6 +153,22 @@ database.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (poll_id, user_id)
   );
+`);
+
+const staffRecordColumns = database.prepare("PRAGMA table_info(staff_records)").all() as Array<{ name: string }>;
+if (!staffRecordColumns.some((column) => column.name === "punishment_id")) {
+  database.exec("ALTER TABLE staff_records ADD COLUMN punishment_id TEXT");
+}
+if (!staffRecordColumns.some((column) => column.name === "punishment_type")) {
+  database.exec("ALTER TABLE staff_records ADD COLUMN punishment_type TEXT");
+}
+if (!staffRecordColumns.some((column) => column.name === "expires_at")) {
+  database.exec("ALTER TABLE staff_records ADD COLUMN expires_at TEXT");
+}
+database.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS staff_records_punishment_id
+    ON staff_records(punishment_id)
+    WHERE punishment_id IS NOT NULL;
 `);
 
 const moderatorApplicationColumns = database.prepare("PRAGMA table_info(moderator_applications)").all() as Array<{ name: string }>;

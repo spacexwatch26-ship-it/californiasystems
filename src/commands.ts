@@ -40,7 +40,8 @@ import {
   type StaffShift,
 } from "./shifts.js";
 import { v2ButtonMessage, v2Flags, v2Message } from "./ui.js";
-import { randomUUID } from "node:crypto";
+import { addCalendarMonths, createPunishmentMessage } from "./punishment.js";
+import { randomInt, randomUUID } from "node:crypto";
 import { closeModeratorApplications, openModeratorApplications } from "./moderator-application.js";
 
 type Command = SlashCommandOptionsOnlyBuilder;
@@ -168,6 +169,14 @@ command("promote", "Manage staff promotion records")
     .addIntegerOption((option) => option.setName("record").setDescription("Record ID").setRequired(true).setMinValue(1)));
 command("punish", "Issue a staff punishment")
   .addUserOption((option) => option.setName("member").setDescription("Staff member").setRequired(true))
+  .addStringOption((option) => option.setName("type").setDescription("Punishment type").setRequired(true)
+    .addChoices(
+      { name: "Verbal Warning", value: "Verbal Warning" },
+      { name: "Written Warning", value: "Written Warning" },
+      { name: "Strike", value: "Strike" },
+      { name: "Suspension", value: "Suspension" },
+      { name: "Termination", value: "Termination" },
+    ))
   .addStringOption((option) => option.setName("reason").setDescription("Reason").setRequired(true).setMaxLength(500));
 command("punishment-history", "View a staff member's punishment history")
   .addUserOption((option) => option.setName("member").setDescription("Staff member").setRequired(true));
@@ -300,6 +309,36 @@ function recordStaffAction(
     VALUES (?, ?, ?, ?)
   `).run(type, memberId, actorId, reason);
   return Number(result.lastInsertRowid);
+}
+
+function recordPunishment(
+  memberId: string,
+  actorId: string,
+  punishmentType: string,
+  reason: string,
+): { id: string; issuedAt: Date; expiresAt: Date | null } {
+  const issuedAt = new Date();
+  issuedAt.setUTCMilliseconds(0);
+  const expiresAt = punishmentType === "Termination" ? null : addCalendarMonths(issuedAt, 2);
+  let punishmentId: string;
+  do {
+    punishmentId = String(randomInt(10_000_000, 100_000_000));
+  } while (database.prepare("SELECT 1 FROM staff_records WHERE punishment_id = ?").get(punishmentId));
+
+  database.prepare(`
+    INSERT INTO staff_records
+      (record_type, member_id, actor_id, reason, created_at, punishment_id, punishment_type, expires_at)
+    VALUES ('punish', ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    memberId,
+    actorId,
+    reason,
+    issuedAt.toISOString(),
+    punishmentId,
+    punishmentType,
+    expiresAt?.toISOString() ?? null,
+  );
+  return { id: punishmentId, issuedAt, expiresAt };
 }
 
 function records(type: string, memberId: string): Array<{ id: number; reason: string; created_at: string; status: string }> {
@@ -925,7 +964,33 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
     return;
   }
 
-  if (commandName === "interview-pass" || commandName === "punish" || commandName === "reinstate" || commandName === "resign" || commandName === "ra-admin") {
+  if (commandName === "punish") {
+    if (!(await requireAdmin(interaction))) return;
+    const member = interaction.options.getUser("member", true);
+    const punishmentType = interaction.options.getString("type", true);
+    const reason = interaction.options.getString("reason", true);
+    const channel = interaction.channel;
+    if (!channel || !("send" in channel)) throw new Error("This command can only be used in a message channel.");
+    const punishment = recordPunishment(member.id, interaction.user.id, punishmentType, reason);
+    await channel.send(createPunishmentMessage({
+      punishmentId: punishment.id,
+      targetId: member.id,
+      issuerId: interaction.user.id,
+      issuedAt: punishment.issuedAt,
+      punishmentType,
+      reason,
+      expiresAt: punishment.expiresAt,
+    }));
+    await auditAction(
+      interaction.client,
+      interaction,
+      `Punishment ${punishment.id} (${punishmentType}) issued to ${member.tag}. Reason: ${reason}`,
+    );
+    await reply(interaction, "Punishment issued", `This user has been punished. Punishment ID is ${punishment.id}`);
+    return;
+  }
+
+  if (commandName === "interview-pass" || commandName === "reinstate" || commandName === "resign" || commandName === "ra-admin") {
     if (!(await requireAdmin(interaction))) return;
     if (commandName === "ra-admin") {
       const member = interaction.options.getUser("member", true);

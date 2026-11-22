@@ -54,15 +54,28 @@ legacyDatabase.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (poll_id, user_id)
   );
+  CREATE TABLE staff_records (
+    id INTEGER PRIMARY KEY,
+    record_type TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at TEXT
+  );
   INSERT INTO session_polls (poll_id, guild_id, channel_id, message_id, notification_role_id, threshold, created_by)
   VALUES ('legacy-poll', 'test-guild', 'test-channel', 'legacy-message', 'old-role', 25, 'test-user');
   INSERT INTO session_votes (poll_id, user_id) VALUES ('legacy-poll', 'legacy-voter');
+  INSERT INTO staff_records (record_type, member_id, actor_id, reason)
+  VALUES ('punish', 'legacy-staff-member', 'legacy-issuer', 'Existing punishment');
 `);
 legacyDatabase.close();
 
 const { executeCommand, getCommandData, SESSION_COMMAND_ROLE_ID } = await import("../dist/commands.js");
 const { database } = await import("../dist/database.js");
 const { audit } = await import("../dist/logging.js");
+const { addCalendarMonths } = await import("../dist/punishment.js");
 const { createWebhookServer } = await import("../dist/webhook.js");
 const {
   closeModeratorApplications,
@@ -147,10 +160,25 @@ test("slash command definitions serialize without duplicate names", () => {
   assert.ok(!names.includes("shift"));
   const say = commands.find((command) => command.name === "say");
   assert.equal(say.options.find((option) => option.name === "embed").required, true);
+  const punish = commands.find((command) => command.name === "punish");
+  assert.deepEqual(
+    punish.options.find((option) => option.name === "type").choices.map((choice) => choice.value),
+    ["Verbal Warning", "Written Warning", "Strike", "Suspension", "Termination"],
+  );
   const shiftAdmin = commands.find((command) => command.name === "shift-admin");
   assert.ok(shiftAdmin.options.some((option) => option.name === "remove-time"));
   assert.equal(new Set(names).size, names.length);
   assert.ok(names.length >= 30);
+});
+
+test("staff record migration preserves old punishments and adds punishment detail fields", () => {
+  const record = database.prepare("SELECT member_id, reason FROM staff_records WHERE id = 1").get();
+  assert.equal(record.member_id, "legacy-staff-member");
+  assert.equal(record.reason, "Existing punishment");
+  const columns = database.prepare("PRAGMA table_info(staff_records)").all().map((column) => column.name);
+  assert.ok(columns.includes("punishment_id"));
+  assert.ok(columns.includes("punishment_type"));
+  assert.ok(columns.includes("expires_at"));
 });
 
 test("/say can post an embed or a plain message", async () => {
@@ -179,6 +207,100 @@ test("/say can post an embed or a plain message", async () => {
   assert.equal(sent[1].content, "Test announcement");
   assert.equal(sent[1].embeds, undefined);
   assert.deepEqual(sent[1].allowedMentions, { parse: [] });
+});
+
+test("/punish posts a branded V2 card and privately returns a unique ID", async () => {
+  assert.equal(
+    addCalendarMonths(new Date("2024-01-31T12:00:00.000Z"), 2).toISOString(),
+    "2024-03-31T12:00:00.000Z",
+  );
+  assert.equal(
+    addCalendarMonths(new Date("2024-12-31T12:00:00.000Z"), 2).toISOString(),
+    "2025-02-28T12:00:00.000Z",
+  );
+  const sent = [];
+  const replies = [];
+  const actions = [];
+  const target = { id: `punishment-target-${randomUUID()}`, tag: "Target#0001" };
+  await executeCommand({
+    commandName: "punish",
+    user: { id: "punishment-issuer" },
+    memberPermissions: { has: () => true },
+    options: {
+      getUser: () => target,
+      getString: (name) => name === "type" ? "Written Warning" : "Failure to meet quota",
+    },
+    channel: { send: async (message) => { sent.push(message); } },
+    reply: async (payload) => { replies.push(payload); },
+  }, actions);
+
+  assert.equal(sent.length, 1);
+  const publicMessage = sent[0];
+  assert.ok((publicMessage.flags & MessageFlags.IsComponentsV2) !== 0);
+  assert.deepEqual(publicMessage.allowedMentions, { parse: [] });
+  assert.deepEqual(publicMessage.files.map((file) => file.name), [
+    "CSRP-Punishment-Top.png",
+    "CSRP-Punishment-Bottom.png",
+  ]);
+  const components = publicMessage.components[0].toJSON().components;
+  assert.equal(components[0].items[0].media.url, "attachment://CSRP-Punishment-Top.png");
+  assert.equal(components[8].items[0].media.url, "attachment://CSRP-Punishment-Bottom.png");
+  for (const index of [1, 3, 5, 7]) {
+    assert.equal(components[index].type, 14);
+    assert.equal(components[index].spacing, 2);
+  }
+  assert.match(components[2].content, /## Punishment Issued/);
+  assert.match(components[2].content, /> \*\*Status:\*\* Active/);
+  assert.match(components[4].content, /## Personnel Information/);
+  assert.match(components[4].content, new RegExp(`<@${target.id}>`));
+  assert.match(components[6].content, /## Punishment Details/);
+  assert.match(components[6].content, /Written Warning/);
+  assert.match(components[6].content, /Failure to meet quota/);
+
+  const punishmentId = components[2].content.match(/Punishment ID:\*\* (\d{8})/)[1];
+  const record = database.prepare(`
+    SELECT member_id, actor_id, punishment_type, reason, created_at, expires_at
+    FROM staff_records WHERE punishment_id = ?
+  `).get(punishmentId);
+  assert.equal(record.member_id, target.id);
+  assert.equal(record.actor_id, "punishment-issuer");
+  assert.equal(record.punishment_type, "Written Warning");
+  assert.equal(record.reason, "Failure to meet quota");
+  const issuedAt = new Date(record.created_at);
+  const expiresAt = new Date(record.expires_at);
+  assert.equal(
+    (expiresAt.getUTCFullYear() - issuedAt.getUTCFullYear()) * 12 + expiresAt.getUTCMonth() - issuedAt.getUTCMonth(),
+    2,
+  );
+  assert.equal(expiresAt.getUTCDate(), issuedAt.getUTCDate());
+  assert.equal(replies.length, 1);
+  assert.deepEqual(replies[0].flags, v2Flags(true));
+  assert.match(replies[0].components[0].toJSON().components[0].content, new RegExp(
+    `This user has been punished\\. Punishment ID is ${punishmentId}`,
+  ));
+  assert.equal(actions.length, 1);
+
+  const terminationTarget = { id: `termination-target-${randomUUID()}`, tag: "Terminated#0001" };
+  const terminationReplies = [];
+  await executeCommand({
+    commandName: "punish",
+    user: { id: "punishment-issuer" },
+    memberPermissions: { has: () => true },
+    options: {
+      getUser: () => terminationTarget,
+      getString: (name) => name === "type" ? "Termination" : "Termination",
+    },
+    channel: { send: async (message) => { sent.push(message); } },
+    reply: async (payload) => { terminationReplies.push(payload); },
+  }, []);
+  const terminationComponents = sent[1].components[0].toJSON().components;
+  const terminationCard = terminationComponents[6].content;
+  assert.match(terminationCard, /No expiration \(Termination\)/);
+  const terminationId = terminationComponents[2].content.match(/Punishment ID:\*\* (\d{8})/)?.[1];
+  assert.ok(terminationId);
+  assert.equal(database.prepare("SELECT expires_at FROM staff_records WHERE punishment_id = ?").get(terminationId).expires_at, null);
+  assert.notEqual(terminationId, punishmentId);
+  assert.match(terminationReplies[0].components[0].toJSON().components[0].content, new RegExp(terminationId));
 });
 
 test("session-end announcement matches the branded session card and offers notification opt-in", () => {

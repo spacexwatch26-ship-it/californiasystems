@@ -103,4 +103,8 @@ history, and minute deductions from completed shifts, and requires Internal
 Affairs role `1445540175341158611`; the management panel requires Staff role
 `1445540284405645453`. The bot needs
 Manage Roles, with the on-shift and Session Ping roles below its highest role.
+`/punish` posts a Components V2 staff card with a unique random 8-digit ID and
+privately confirms that ID to the issuer. Verbal Warning, Written Warning,
+Strike, and Suspension punishments expire two calendar months after issuance;
+Termination has no expiration.
 Never put bot tokens, server keys, or webhook secrets in source control or chat.
