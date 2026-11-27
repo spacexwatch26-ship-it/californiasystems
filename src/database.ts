@@ -183,6 +183,24 @@ database.exec(`
   );
 `);
 
+const ticketColumns = database.prepare("PRAGMA table_info(tickets)").all() as Array<{ name: string }>;
+if (!ticketColumns.some((column) => column.name === "ticket_number")) {
+  database.exec("ALTER TABLE tickets ADD COLUMN ticket_number INTEGER");
+  database.exec(`
+    WITH ordered AS (
+      SELECT rowid, ROW_NUMBER() OVER (ORDER BY created_at, rowid) AS ticket_number
+      FROM tickets
+    )
+    UPDATE tickets
+    SET ticket_number = (SELECT ticket_number FROM ordered WHERE ordered.rowid = tickets.rowid);
+  `);
+}
+database.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS tickets_ticket_number
+    ON tickets(ticket_number)
+    WHERE ticket_number IS NOT NULL;
+`);
+
 const staffRecordColumns = database.prepare("PRAGMA table_info(staff_records)").all() as Array<{ name: string }>;
 if (!staffRecordColumns.some((column) => column.name === "punishment_id")) {
   database.exec("ALTER TABLE staff_records ADD COLUMN punishment_id TEXT");

@@ -298,6 +298,7 @@ test("ticket dropdown opens the selected form and creates a categorized, role-pi
 
   assert.equal(await executeTicketModal(modalInteraction), true);
   assert.equal(channelOptions.parent, "1522888236064706620");
+  assert.match(channelOptions.name, /^ticket-\d{4}$/);
   assert.equal(channelOptions.permissionOverwrites.some((overwrite) => overwrite.id === reportRoleId), true);
   assert.equal(sentMessages[0].content, `<@&${reportRoleId}>`);
   assert.ok(sentMessages[0].embeds[0].data.description.includes(`<@&${reportRoleId}>`));
@@ -317,6 +318,68 @@ test("ticket dropdown opens the selected form and creates a categorized, role-pi
   };
   assert.equal(await executeTicketButton(claimInteraction), true);
   assert.equal(sentMessages[1], "*Greeting, I am **Example Staff** and I will be assisting you today.*");
+  database.prepare("DELETE FROM tickets WHERE channel_id = ?").run(channelId);
+});
+
+test("ticket close asks for confirmation and deletes only after confirmation", async () => {
+  const channelId = `test-close-${randomUUID()}`;
+  const openerId = `close-opener-${randomUUID()}`;
+  database.prepare(
+    "INSERT INTO tickets (channel_id, opener_id, status, ticket_number) VALUES (?, ?, 'open', ?)",
+  ).run(channelId, openerId, 9001);
+
+  let deleted = false;
+  const ticketChannel = {
+    delete: async () => { deleted = true; },
+  };
+  const logChannel = {
+    guildId: "test-guild",
+    isTextBased: () => true,
+    isDMBased: () => false,
+    send: async () => {},
+  };
+  const client = { channels: { fetch: async () => logChannel } };
+  const guild = {
+    id: "test-guild",
+    members: { fetch: async () => ({ roles: { cache: { some: () => false } } }) },
+  };
+  let confirmation;
+  const closeInteraction = {
+    customId: "ticket:close",
+    channelId,
+    channel: ticketChannel,
+    guild,
+    user: { id: openerId, tag: "opener#0001" },
+    client,
+    memberPermissions: { has: () => false },
+    reply: async (message) => { confirmation = message; },
+  };
+  assert.equal(await executeTicketButton(closeInteraction), true);
+  assert.equal(deleted, false);
+  const confirmationJson = confirmation.components[0].toJSON();
+  const confirmationButtons = confirmationJson.components
+    .filter((component) => component.type === 1)
+    .flatMap((component) => component.components);
+  assert.deepEqual(
+    confirmationButtons.map((button) => button.custom_id),
+    ["ticket:close-confirm", "ticket:close-cancel"],
+  );
+
+  const confirmInteraction = {
+    customId: "ticket:close-confirm",
+    channelId,
+    channel: ticketChannel,
+    guild,
+    user: { id: openerId, tag: "opener#0001" },
+    client,
+    memberPermissions: { has: () => false },
+    deferReply: async () => {},
+    editReply: async () => {},
+  };
+  assert.equal(await executeTicketButton(confirmInteraction), true);
+  assert.equal(deleted, true);
+  const ticket = database.prepare("SELECT status FROM tickets WHERE channel_id = ?").get(channelId);
+  assert.equal(ticket.status, "closed");
   database.prepare("DELETE FROM tickets WHERE channel_id = ?").run(channelId);
 });
 
@@ -1212,6 +1275,13 @@ test("moderator applications use the command channel, DM form, review actions, a
   assert.match(acceptanceId, /^MA-\d{6}$/);
   assert.ok(resultsChannel.sent[0].payload.files.some((file) => file.name === "CSRP-Accepted.png"));
   assert.deepEqual(resultsChannel.sent[0].payload.allowedMentions.users, [applicant.id]);
+  const acceptedResultText = resultsChannel.sent[0].payload.components[0].toJSON().components
+    .filter((component) => component.type === 10)
+    .map((component) => component.content)
+    .join("\n");
+  assert.match(acceptedResultText, /Staff Application Accepted/);
+  assert.match(acceptedResultText, /<:pin:1554160947013222541> \*\*Application Feedback\*\*/);
+  assert.match(acceptedResultText, /Strong, thoughtful answers/);
   assert.ok(applicantNotifications[0].payload.components[0].toJSON().components[0].content.includes(acceptanceId));
 
   const deniedInsert = database.prepare(`
@@ -1248,6 +1318,14 @@ test("moderator applications use the command channel, DM form, review actions, a
   });
   assert.ok(resultsChannel.sent[1].payload.files.some((file) => file.name === "CSRP-Denied.png"));
   assert.deepEqual(resultsChannel.sent[1].payload.allowedMentions.users, ["test-denied-applicant"]);
+  const deniedResultText = resultsChannel.sent[1].payload.components[0].toJSON().components
+    .filter((component) => component.type === 10)
+    .map((component) => component.content)
+    .join("\n");
+  assert.match(deniedResultText, /Staff Application Denied/);
+  assert.doesNotMatch(deniedResultText, /whitelist/i);
+  assert.match(deniedResultText, /<:pin:1554160947013222541> \*\*Application Feedback\*\*/);
+  assert.match(deniedResultText, /Please gain more experience before reapplying/);
   assert.equal(database.prepare("SELECT acceptance_id FROM moderator_applications WHERE id = ?").get(deniedId).acceptance_id, null);
 
   assert.equal(await closeModeratorApplications(mockClient), true);

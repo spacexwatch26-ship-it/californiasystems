@@ -301,8 +301,25 @@ async function sendApplicationResult(client: Client, application: ModeratorAppli
   const accepted = application.status === "accepted";
   const image = accepted ? ACCEPTED_IMAGE : DENIED_IMAGE;
   const imageDescription = accepted ? "Moderator application accepted" : "Moderator application denied";
-  const decision = accepted ? "Accepted" : "Denied";
   const timestamp = Math.floor(Date.parse(application.reviewed_at ?? new Date().toISOString()) / 1000);
+  const feedback = application.decision_reason?.trim() || "No additional feedback was provided.";
+  const resultText = accepted
+    ? [
+        `## Staff Application Accepted`,
+        `Congratulations, <@${application.applicant_id}>! Your staff application has been accepted. We appreciate your interest in helping the California State Roleplay community.`,
+        ``,
+        `**Application:** <@${application.applicant_id}>`,
+        `**Request ID:** ${applicationRequestId(application.id)}`,
+        ...(application.acceptance_id ? [`**Staff Request ID:** ${application.acceptance_id}`] : []),
+        `**Reviewer:** <@${application.reviewed_by}>`,
+        `**Decision date:** <t:${timestamp}:F>`,
+      ].join("\n")
+    : [
+        `## Staff Application Denied`,
+        `Unfortunately, <@${application.applicant_id}>, your staff application has been denied. We sincerely appreciate the time and effort you invested in completing the application.`,
+        ``,
+        `Please review the feedback below and continue developing your experience, professionalism, and activity in the community. You may submit a future application after meeting the staff requirements and allowing time for meaningful improvement.`,
+      ].join("\n");
   const container = new ContainerBuilder()
     .setAccentColor(0x8298c2)
     .addMediaGalleryComponents(
@@ -313,14 +330,15 @@ async function sendApplicationResult(client: Client, application: ModeratorAppli
       ),
     )
     .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(resultText),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large))
+    .addTextDisplayComponents(
       new TextDisplayBuilder().setContent([
-        `## Moderator Application ${decision}`,
-        `**Request ID:** ${applicationRequestId(application.id)}`,
-        ...(application.acceptance_id ? [`**Staff Request ID:** ${application.acceptance_id}`] : []),
-        `**Applicant:** <@${application.applicant_id}>`,
-        `**Reviewer:** <@${application.reviewed_by}>`,
-        `**Reason:** ${application.decision_reason ?? "No reason provided."}`,
-        `**Decision date:** <t:${timestamp}:F>`,
+        `${PIN_EMOJI} **Application Feedback**`,
+        feedback,
+        ``,
+        `-# Staff Application · California State Roleplay`,
       ].join("\n")),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large))

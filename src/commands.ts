@@ -22,6 +22,7 @@ import {
   type Client,
   type GuildMember,
   type ModalSubmitInteraction,
+  type InteractionReplyOptions,
   type SlashCommandOptionsOnlyBuilder,
   type StringSelectMenuInteraction,
 } from "discord.js";
@@ -1373,6 +1374,24 @@ function ticketControls(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
+function ticketCloseConfirmation(): InteractionReplyOptions {
+  const text = new TextDisplayBuilder()
+    .setContent("## Confirm Ticket Closure\nAre you sure you want to permanently delete this ticket channel?\n\n-# California State Roleplay");
+  const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId("ticket:close-confirm").setLabel("Yes, delete ticket").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("ticket:close-cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+  );
+  const container = new ContainerBuilder()
+    .setAccentColor(0xd93f3f)
+    .addTextDisplayComponents(text)
+    .addActionRowComponents(buttons);
+  return {
+    flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+    components: [container],
+    allowedMentions: { parse: [] },
+  };
+}
+
 function ticketStaffRoleIds(): Set<string> {
   const roles = new Set<string>(Object.values(TICKET_ROLES));
   if (config.ticketStaffRoleId) roles.add(config.ticketStaffRoleId);
@@ -1464,7 +1483,11 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
   const evidenceLink = category === "report-ticket"
     ? interaction.fields.getTextInputValue("evidence_link").trim()
     : "";
-  const slug = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 40);
+  const nextNumber = database.prepare(`
+    SELECT COALESCE(MAX(ticket_number), 0) + 1 AS next_number
+    FROM tickets
+  `).get() as { next_number: number };
+  const ticketNumber = nextNumber.next_number;
   const permissionOverwrites = [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
     { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
@@ -1475,13 +1498,14 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     })),
   ];
   const ticketChannel = await guild.channels.create({
-    name: `ticket-${category}-${slug || "member"}-${Date.now().toString(36)}`,
+    name: `ticket-${String(ticketNumber).padStart(4, "0")}`,
     type: ChannelType.GuildText,
     parent: parentId,
     permissionOverwrites,
   });
   ticketChannelId = ticketChannel.id;
-  database.prepare("INSERT INTO tickets (channel_id, opener_id) VALUES (?, ?)").run(ticketChannel.id, interaction.user.id);
+  database.prepare("INSERT INTO tickets (channel_id, opener_id, ticket_number) VALUES (?, ?, ?)")
+    .run(ticketChannel.id, interaction.user.id, ticketNumber);
 
   const intakeEmbed = new EmbedBuilder()
     .setColor(0xe4b84b)
@@ -1555,7 +1579,59 @@ export async function executeTicketButton(interaction: ButtonInteraction): Promi
     await interaction.reply({ ...v2Message("Choose a category", "Use the dropdown in the support panel to select the right ticket type."), flags: v2Flags(true) });
     return true;
   }
+  if (interaction.customId === "ticket:close-cancel") {
+    await interaction.reply({ ...v2Message("Ticket Closure Cancelled", "The ticket channel was not deleted."), flags: v2Flags(true) });
+    return true;
+  }
+  if (interaction.customId === "ticket:close-confirm") {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const ticket = database.prepare("SELECT opener_id, status FROM tickets WHERE channel_id = ?").get(interaction.channelId) as
+      | { opener_id: string; status: string }
+      | undefined;
+    if (!ticket || ticket.status !== "open" || !interaction.guild) {
+      await editTicketButtonReply(interaction, "Ticket unavailable", "This control only works in an open support ticket.");
+      return true;
+    }
+    if (!(await isTicketStaffButton(interaction)) && ticket.opener_id !== interaction.user.id) {
+      await editTicketButtonReply(interaction, "Permission denied", "Only the ticket opener or ticket staff can close this ticket.");
+      return true;
+    }
+    if (!interaction.channel || !("delete" in interaction.channel)) {
+      await editTicketButtonReply(interaction, "Ticket unavailable", "The ticket channel could not be resolved for deletion.");
+      return true;
+    }
+    try {
+      await interaction.channel.delete(`Ticket closed by ${interaction.user.tag}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The channel could not be deleted.";
+      await editTicketButtonReply(interaction, "Ticket deletion failed", message.slice(0, 1000));
+      return true;
+    }
+    database.prepare("UPDATE tickets SET status = 'closed', closed_at = datetime('now') WHERE channel_id = ?").run(interaction.channelId);
+    await audit(interaction.client, "ticket closed", `Ticket ${interaction.channelId} was deleted after confirmation by <@${interaction.user.id}>.`, {
+      guildId: interaction.guild.id,
+      actorId: interaction.user.id,
+      subjectId: interaction.channelId,
+    });
+    await editTicketButtonReply(interaction, "Ticket closed", "The ticket channel was permanently deleted.");
+    return true;
+  }
   if (interaction.customId !== "ticket:claim" && interaction.customId !== "ticket:close") return false;
+  if (interaction.customId === "ticket:close") {
+    const ticket = database.prepare("SELECT opener_id, status FROM tickets WHERE channel_id = ?").get(interaction.channelId) as
+      | { opener_id: string; status: string }
+      | undefined;
+    if (!ticket || ticket.status !== "open" || !interaction.guild) {
+      await interaction.reply({ ...v2Message("Ticket unavailable", "This control only works in an open support ticket."), flags: v2Flags(true) });
+      return true;
+    }
+    if (!(await isTicketStaffButton(interaction)) && ticket.opener_id !== interaction.user.id) {
+      await interaction.reply({ ...v2Message("Permission denied", "Only the ticket opener or ticket staff can close this ticket."), flags: v2Flags(true) });
+      return true;
+    }
+    await interaction.reply(ticketCloseConfirmation());
+    return true;
+  }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const ticket = database.prepare("SELECT opener_id, claimed_by, status FROM tickets WHERE channel_id = ?").get(interaction.channelId) as
     | { opener_id: string; claimed_by: string | null; status: string }
@@ -1599,17 +1675,6 @@ export async function executeTicketButton(interaction: ButtonInteraction): Promi
     await editTicketButtonReply(interaction, "Permission denied", "Only the ticket opener or ticket staff can close this ticket.");
     return true;
   }
-  database.prepare("UPDATE tickets SET status = 'closed', closed_at = datetime('now') WHERE channel_id = ?").run(interaction.channelId);
-  const channel = interaction.channel;
-  if (channel && "permissionOverwrites" in channel) {
-    await channel.permissionOverwrites.edit(ticket.opener_id, { SendMessages: false });
-  }
-  await audit(interaction.client, "ticket closed", `Ticket <#${interaction.channelId}> closed by <@${interaction.user.id}>.`, {
-    guildId: interaction.guild.id,
-    actorId: interaction.user.id,
-    subjectId: interaction.channelId,
-  });
-  await editTicketButtonReply(interaction, "Ticket closed", "This support ticket has been closed.");
   return true;
 }
 
