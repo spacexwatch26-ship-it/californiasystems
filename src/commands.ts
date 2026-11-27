@@ -68,7 +68,7 @@ const TICKET_ROLES = {
   "general-support": "1524688682702082159",
   "report-ticket": "1445540175341158611",
   "partnership-ticket": "1475565354838392842",
-  "community-support": "1575701190124113941",
+  "community-support": "1475565354838392842",
 } as const;
 
 const TICKET_CATEGORIES = {
@@ -108,8 +108,8 @@ const TICKET_CATEGORIES = {
 type TicketCategory = keyof typeof TICKET_CATEGORIES;
 
 const TICKET_PARENT_CATEGORIES: Record<TicketCategory, string> = {
-  "general-support": "1575701014974042172",
-  "report-ticket": "1575701661534658730",
+  "general-support": "1520719813356556329",
+  "report-ticket": "1522888236064706620",
   "partnership-ticket": "1520720368950841414",
   "community-support": "1520720565948776478",
 };
@@ -1413,6 +1413,8 @@ async function editTicketModalReply(interaction: ModalSubmitInteraction, title: 
 
 async function createTicketFromModal(interaction: ModalSubmitInteraction, category: TicketCategory): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  let ticketChannelId: string | undefined;
+  try {
   const guild = interaction.guild;
   if (!guild || guild.id !== config.guildId) {
     await editTicketModalReply(interaction, "Ticket unavailable", "Tickets can only be opened in the configured server.");
@@ -1450,9 +1452,15 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     label: question.label,
     value: interaction.fields.getTextInputValue(question.id).trim(),
   }));
-  const evidence = category === "report-ticket"
-    ? interaction.fields.getUploadedFiles("evidence", false)
-    : null;
+  let evidence: { size: number; values: () => IterableIterator<{ name: string; url: string }> } | null = null;
+  if (category === "report-ticket") {
+    try {
+      evidence = interaction.fields.getUploadedFiles("evidence", false);
+    } catch (error) {
+      console.error("Could not read optional report evidence attachments:", error);
+      evidence = null;
+    }
+  }
   const evidenceLink = category === "report-ticket"
     ? interaction.fields.getTextInputValue("evidence_link").trim()
     : "";
@@ -1472,6 +1480,7 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     parent: parentId,
     permissionOverwrites,
   });
+  ticketChannelId = ticketChannel.id;
   database.prepare("INSERT INTO tickets (channel_id, opener_id) VALUES (?, ?)").run(ticketChannel.id, interaction.user.id);
 
   const intakeEmbed = new EmbedBuilder()
@@ -1516,6 +1525,22 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     console.error("Ticket opened, but its ticket log could not be delivered:", error);
   }
   await editTicketModalReply(interaction, "Ticket created", `Your private ${details.label.toLowerCase()} ticket is ${ticketChannel}.`);
+  } catch (error) {
+    if (ticketChannelId) {
+      database.prepare("DELETE FROM tickets WHERE channel_id = ?").run(ticketChannelId);
+      const partialChannel = await interaction.guild?.channels.fetch(ticketChannelId).catch(() => null);
+      if (partialChannel && "delete" in partialChannel) {
+        await partialChannel.delete("Ticket setup failed.").catch(() => undefined);
+      }
+    }
+    const message = error instanceof Error ? error.message : "An unknown Discord API error occurred.";
+    console.error("Could not create support ticket:", error);
+    await editTicketModalReply(
+      interaction,
+      "Ticket submission failed",
+      `Discord rejected the ticket setup: ${message.slice(0, 1000)}`,
+    ).catch(() => undefined);
+  }
 }
 
 export async function executeTicketModal(interaction: ModalSubmitInteraction): Promise<boolean> {

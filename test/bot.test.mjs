@@ -196,7 +196,6 @@ test("ticket panel preserves the support copy and adds the category dropdown", (
     "1524688682702082159",
     "1445540175341158611",
     "1475565354838392842",
-    "1575701190124113941",
   ]);
   assert.equal(container.components.filter((component) => component.type === 14).length, 7);
 });
@@ -298,7 +297,7 @@ test("ticket dropdown opens the selected form and creates a categorized, role-pi
   };
 
   assert.equal(await executeTicketModal(modalInteraction), true);
-  assert.equal(channelOptions.parent, "1575701661534658730");
+  assert.equal(channelOptions.parent, "1522888236064706620");
   assert.equal(channelOptions.permissionOverwrites.some((overwrite) => overwrite.id === reportRoleId), true);
   assert.equal(sentMessages[0].content, `<@&${reportRoleId}>`);
   assert.ok(sentMessages[0].embeds[0].data.description.includes(`<@&${reportRoleId}>`));
