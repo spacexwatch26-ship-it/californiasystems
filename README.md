@@ -92,12 +92,15 @@ the supplied guidelines artwork without changing the poll banner.
 
 ## Logging and privacy
 
-Discord activity logs are posted for role creation/deletion and role assignment,
-channel creation/deletion, member join/leave, voice join/leave, emoji
-creation/deletion, and message edit/delete (including bulk deletion). These
-posts use the audit banner and are routed to their configured category channels.
-New message creation, role removal, channel/member/emoji updates, bans, and
-other unlisted activity remain suppressed from Discord.
+Discord activity posts are limited to the configured category events: role
+creation/deletion and role assignment, channel creation/deletion, member
+join/leave, voice join/leave, emoji creation/deletion, and message
+edit/delete (including bulk deletion). These posts use the audit banner and are
+routed to their configured category channels. New message creation, role
+removal, channel/member/emoji updates, bans, moderation actions, and all other
+unlisted activity remain suppressed from Discord. Slash-command usage and
+configured punishment, ticket, role, and moderation command logs continue to
+post normally; moderation-event posts themselves are not gateway-audit posts.
 Game-event routing is unchanged: 911 calls go only to their dedicated channel,
 and non-911 game events remain stored locally without Discord posts.
 Discord only exposes events available to the bot's enabled gateway intents and
