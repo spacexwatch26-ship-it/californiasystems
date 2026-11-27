@@ -1263,12 +1263,12 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
 export function createTicketPanelMessage() {
   const categories = Object.entries(TICKET_CATEGORIES) as Array<[TicketCategory, (typeof TICKET_CATEGORIES)[TicketCategory]]>;
   const sections = [
-    "### <:pin:1554160947013222541> | General Support Ticket\n> - Use this ticket for general questions, assistance, concerns, bug reports, or to report community rule violations.",
-    "### <:hammer:1554160354408271912> | Report Ticket\n> - Report a staff member for misconduct or policy violations. All reports must include sufficient evidence (screenshots, videos, or other supporting documentation). False or malicious reports may result in disciplinary action.",
-    "### <:partner:1554160299202846791> | Partnership Ticket\n> - Interested in partnering with **California State Roleplay**? Open this ticket to submit a partnership request. Your community must have **50 or more members**, maintain a professional environment, and meet our partnership requirements. View requirements in the **#dashboard** channel.",
-    "### <:crown:1554160757757968405> | Community Support Ticket\n> - Contact the **Management Team & Ownership Team** regarding shop purchases, giveaway claims, role requests, administrative assistance, or other leadership-related inquiries.",
+    "**<:pin:1554160947013222541> | General Support Ticket**\n> *- Use this ticket for general questions, assistance, concerns, bug reports, or to report community rule violations.*",
+    "**<:hammer:1554160354408271912> | Report Ticket**\n> *- Report a staff member for misconduct or policy violations. All reports must include sufficient evidence (screenshots, videos, or other supporting documentation). False or malicious reports may result in disciplinary action.*",
+    "**<:partner:1554160299202846791> | Partnership Ticket**\n> *- Interested in partnering with **California State Roleplay**? Open this ticket to submit a partnership request. Your community must have **50 or more members**, maintain a professional environment, and meet our partnership requirements. View requirements in the **#dashboard** channel.*",
+    "**<:crown:1554160757757968405> | Community Support Ticket**\n> *- Contact the **Management Team & Ownership Team** regarding shop purchases, giveaway claims, role requests, administrative assistance, or other leadership-related inquiries.*",
     [
-      "### <:pin:1554160947013222541> | Before Opening a Ticket",
+      "**<:pin:1554160947013222541> | Before Opening a Ticket**",
       "• Open only **one ticket per issue**.",
       "• Clearly explain your concern and provide as much information as possible.",
       "• Attach any relevant evidence to help us resolve your issue.",
@@ -1481,6 +1481,7 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     intakeEmbed.addFields({ name: "Evidence link", value: evidenceLink });
   }
   await ticketChannel.send({
+    content: `<@&${TICKET_ROLES[category]}>`,
     embeds: [intakeEmbed],
     components: [ticketControls()],
     allowedMentions: { parse: [], roles: [TICKET_ROLES[category]], users: [interaction.user.id] },

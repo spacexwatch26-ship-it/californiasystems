@@ -81,6 +81,9 @@ const {
   createTicketIntakeModal,
   createTicketPanelMessage,
   executeCommand,
+  executeTicketButton,
+  executeTicketModal,
+  executeTicketSelectMenu,
   getCommandData,
   SESSION_COMMAND_ROLE_ID,
 } = await import("../dist/commands.js");
@@ -181,6 +184,8 @@ test("ticket panel preserves the support copy and adds the category dropdown", (
   );
   assert.match(panelText, /CSRP — Assistance/);
   assert.match(panelText, /Welcome to the \*\*California State Roleplay Support Center!\*\*/);
+  assert.match(panelText, /\*\*<:pin:1554160947013222541> \| General Support Ticket\*\*/);
+  assert.match(panelText, /> \*- Use this ticket for general questions/);
   assert.match(panelText, /general questions, assistance, concerns, bug reports, or to report community rule violations/);
   assert.match(panelText, /False or malicious reports may result in disciplinary action/);
   assert.match(panelText, /50 or more members/);
@@ -193,6 +198,7 @@ test("ticket panel preserves the support copy and adds the category dropdown", (
     "1475565354838392842",
     "1575701190124113941",
   ]);
+  assert.equal(container.components.filter((component) => component.type === 14).length, 7);
 });
 
 test("ticket intake requires report answers and leaves evidence file/link optional", () => {
@@ -220,6 +226,99 @@ test("ticket intake requires report answers and leaves evidence file/link option
     assert.ok(modal.components.every((row) => row.components.every((input) => input.required)));
   }
   assert.equal(createTicketIntakeModal("partnership-ticket").toJSON().components.length, 3);
+});
+
+test("ticket dropdown opens the selected form and creates a categorized, role-pinged ticket that staff can claim", async () => {
+  let selectedModal;
+  assert.equal(await executeTicketSelectMenu({
+    customId: "ticket:category",
+    values: ["report-ticket"],
+    showModal: async (modal) => { selectedModal = modal; },
+  }), true);
+  assert.equal(selectedModal.toJSON().custom_id, "ticket:submit:report-ticket");
+
+  const channelId = `test-ticket-${randomUUID()}`;
+  const openerId = `ticket-opener-${randomUUID()}`;
+  const staffId = `ticket-staff-${randomUUID()}`;
+  const reportRoleId = "1445540175341158611";
+  const sentMessages = [];
+  let channelOptions;
+  const ticketChannel = {
+    id: channelId,
+    send: async (message) => { sentMessages.push(message); },
+  };
+  const logChannel = {
+    guildId: "test-guild",
+    isTextBased: () => true,
+    isDMBased: () => false,
+    send: async () => {},
+  };
+  const client = {
+    user: { id: "ticket-bot" },
+    channels: { fetch: async () => logChannel },
+  };
+  const staffMember = {
+    displayName: "Example Staff",
+    roles: {
+      cache: {
+        some: (predicate) => predicate({ id: reportRoleId }),
+      },
+    },
+  };
+  const guild = {
+    id: "test-guild",
+    roles: { everyone: { id: "test-everyone" } },
+    channels: {
+      create: async (options) => {
+        channelOptions = options;
+        return ticketChannel;
+      },
+    },
+    members: { fetch: async () => staffMember },
+  };
+  const answerById = {
+    reported_member: "Staff member (123456789)",
+    report_reason: "I am reporting the behavior described here.",
+    evidence_link: "https://example.com/evidence",
+  };
+  const attachments = new Map([
+    ["report-file", { name: "evidence.png", url: "https://cdn.discordapp.com/attachments/evidence.png" }],
+  ]);
+  const modalInteraction = {
+    customId: "ticket:submit:report-ticket",
+    guild,
+    user: { id: openerId, username: "ticket-opener" },
+    client,
+    fields: {
+      getTextInputValue: (id) => answerById[id],
+      getUploadedFiles: () => attachments,
+    },
+    deferReply: async () => {},
+    editReply: async () => {},
+  };
+
+  assert.equal(await executeTicketModal(modalInteraction), true);
+  assert.equal(channelOptions.parent, "1575701661534658730");
+  assert.equal(channelOptions.permissionOverwrites.some((overwrite) => overwrite.id === reportRoleId), true);
+  assert.equal(sentMessages[0].content, `<@&${reportRoleId}>`);
+  assert.ok(sentMessages[0].embeds[0].data.description.includes(`<@&${reportRoleId}>`));
+  assert.match(sentMessages[0].embeds[0].data.fields.map((field) => field.value).join("\n"), /Staff member \(123456789\)/);
+  assert.equal(sentMessages[0].components[0].toJSON().components[0].custom_id, "ticket:claim");
+
+  const claimInteraction = {
+    customId: "ticket:claim",
+    channelId,
+    channel: ticketChannel,
+    guild,
+    user: { id: staffId },
+    client,
+    memberPermissions: { has: () => false },
+    deferReply: async () => {},
+    editReply: async () => {},
+  };
+  assert.equal(await executeTicketButton(claimInteraction), true);
+  assert.equal(sentMessages[1], "*Greeting, I am **Example Staff** and I will be assisting you today.*");
+  database.prepare("DELETE FROM tickets WHERE channel_id = ?").run(channelId);
 });
 
 test("guidelines panel includes private regulation readers and both Terms links", () => {
