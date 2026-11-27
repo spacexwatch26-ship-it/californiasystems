@@ -1262,23 +1262,20 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
 
 export function createTicketPanelMessage() {
   const categories = Object.entries(TICKET_CATEGORIES) as Array<[TicketCategory, (typeof TICKET_CATEGORIES)[TicketCategory]]>;
-  const embed = new EmbedBuilder()
-    .setColor(0xe4b84b)
-    .setTitle("CALIFORNIA STATE ROLEPLAY | SUPPORT CENTER")
-    .setDescription([
-      "Welcome to the **California State Roleplay Support Center**.",
-      "Choose the option that best matches what you need. A private ticket will be created and the right team will be notified.",
-      "",
-      ...categories.map(([category, details]) => `${details.emoji.id ? `<:${details.emoji.name}:${details.emoji.id}>` : ""} **${details.label}** · <@&${TICKET_ROLES[category]}>`),
-      "",
-      "**Before opening a ticket**",
-      "• Open one ticket per issue and include clear, relevant details.",
-      "• Be respectful and keep sensitive information within your private ticket.",
-      "• For reports, provide a link or attach supporting evidence if available.",
-      "",
-      "*Thank you for helping us keep **California State Roleplay** organized and professional. Our staff will assist you as soon as possible.*",
-    ].join("\n"))
-    .setFooter({ text: "CSRP Support • Private, organized, and handled by our team" });
+  const sections = [
+    "### <:pin:1554160947013222541> | General Support Ticket\n> - Use this ticket for general questions, assistance, concerns, bug reports, or to report community rule violations.",
+    "### <:hammer:1554160354408271912> | Report Ticket\n> - Report a staff member for misconduct or policy violations. All reports must include sufficient evidence (screenshots, videos, or other supporting documentation). False or malicious reports may result in disciplinary action.",
+    "### <:partner:1554160299202846791> | Partnership Ticket\n> - Interested in partnering with **California State Roleplay**? Open this ticket to submit a partnership request. Your community must have **50 or more members**, maintain a professional environment, and meet our partnership requirements. View requirements in the **#dashboard** channel.",
+    "### <:crown:1554160757757968405> | Community Support Ticket\n> - Contact the **Management Team & Ownership Team** regarding shop purchases, giveaway claims, role requests, administrative assistance, or other leadership-related inquiries.",
+    [
+      "### <:pin:1554160947013222541> | Before Opening a Ticket",
+      "• Open only **one ticket per issue**.",
+      "• Clearly explain your concern and provide as much information as possible.",
+      "• Attach any relevant evidence to help us resolve your issue.",
+      "• Remain respectful and professional throughout the support process.",
+    ].join("\n"),
+    "*Thank you for helping us keep **California State Roleplay** organized and professional. Our staff will assist you as soon as possible.*",
+  ];
   const menu = new StringSelectMenuBuilder()
     .setCustomId("ticket:category")
     .setPlaceholder("Select a ticket category")
@@ -1288,9 +1285,24 @@ export function createTicketPanelMessage() {
       value: category,
       emoji: details.emoji,
     })));
+  const container = new ContainerBuilder()
+    .setAccentColor(0xe4b84b)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+      "## CSRP — Assistance",
+      "",
+      "*Welcome to the **California State Roleplay Support Center!** If you require assistance, please select the ticket that best matches your needs. Opening the correct ticket helps our team assist you as quickly and efficiently as possible.*",
+    ].join("\n")));
+  for (const section of sections) {
+    container
+      .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(section));
+  }
+  container
+    .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
+    .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
   return {
-    embeds: [embed],
-    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    flags: ["IsComponentsV2"] as const,
+    components: [container],
     allowedMentions: { parse: [], roles: [...new Set(Object.values(TICKET_ROLES))] },
   };
 }

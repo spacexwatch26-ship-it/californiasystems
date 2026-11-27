@@ -161,30 +161,38 @@ test("bot messages are Components V2 with mentions disabled", () => {
   assert.equal(panel.components?.[0]?.toJSON().components?.[1]?.type, 1);
 });
 
-test("ticket panel dropdown routes categories, pings support roles, and uses the updated footer", () => {
+test("ticket panel preserves the support copy and adds the category dropdown", () => {
   const panel = createTicketPanelMessage();
-  const embed = panel.embeds[0].toJSON();
-  const menu = panel.components[0].toJSON().components[0];
+  const container = panel.components[0].toJSON();
+  const panelText = container.components
+    .filter((component) => component.type === 10)
+    .map((component) => component.content)
+    .join("\n");
+  const menu = container.components.find((component) => component.type === 1).components[0];
   const categories = menu.options.map((option) => option.value);
 
+  assert.ok(panel.flags.includes("IsComponentsV2"));
+  assert.equal(panel.embeds, undefined);
   assert.equal(menu.custom_id, "ticket:category");
   assert.deepEqual(categories, ["general-support", "report-ticket", "partnership-ticket", "community-support"]);
   assert.deepEqual(
     menu.options.map((option) => option.emoji.id),
     ["1554160947013222541", "1554160354408271912", "1554160299202846791", "1554160757757968405"],
   );
-  assert.match(embed.description, /Welcome to the \*\*California State Roleplay Support Center\*\*/);
-  assert.match(embed.description, /Thank you for helping us keep \*\*California State Roleplay\*\* organized and professional/);
-  assert.doesNotMatch(embed.description, /Morse Roleplay/);
+  assert.match(panelText, /CSRP — Assistance/);
+  assert.match(panelText, /Welcome to the \*\*California State Roleplay Support Center!\*\*/);
+  assert.match(panelText, /general questions, assistance, concerns, bug reports, or to report community rule violations/);
+  assert.match(panelText, /False or malicious reports may result in disciplinary action/);
+  assert.match(panelText, /50 or more members/);
+  assert.match(panelText, /Management Team & Ownership Team/);
+  assert.match(panelText, /Thank you for helping us keep \*\*California State Roleplay\*\* organized and professional/);
+  assert.doesNotMatch(panelText, /Morse Roleplay/);
   assert.deepEqual(panel.allowedMentions.roles, [
     "1524688682702082159",
     "1445540175341158611",
     "1475565354838392842",
     "1575701190124113941",
   ]);
-  for (const roleId of panel.allowedMentions.roles) {
-    assert.ok(embed.description.includes(`<@&${roleId}>`));
-  }
 });
 
 test("ticket intake requires report answers and leaves evidence file/link optional", () => {
