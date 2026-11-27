@@ -1419,6 +1419,20 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
     return;
   }
 
+  if (guild.members.me && !guild.members.me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    await editTicketModalReply(interaction, "Ticket unavailable", "The bot needs the Manage Channels permission to create tickets.");
+    return;
+  }
+
+  const parentId = TICKET_PARENT_CATEGORIES[category];
+  if (typeof guild.channels.fetch === "function") {
+    const parent = await guild.channels.fetch(parentId);
+    if (!parent || parent.type !== ChannelType.GuildCategory) {
+      await editTicketModalReply(interaction, "Ticket unavailable", "The configured ticket category could not be found. Ask an administrator to verify the category ID.");
+      return;
+    }
+  }
+
   const existing = database.prepare("SELECT channel_id FROM tickets WHERE opener_id = ? AND status = 'open'").get(interaction.user.id) as
     | { channel_id: string }
     | undefined;
@@ -1455,7 +1469,7 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
   const ticketChannel = await guild.channels.create({
     name: `ticket-${category}-${slug || "member"}-${Date.now().toString(36)}`,
     type: ChannelType.GuildText,
-    parent: TICKET_PARENT_CATEGORIES[category],
+    parent: parentId,
     permissionOverwrites,
   });
   database.prepare("INSERT INTO tickets (channel_id, opener_id) VALUES (?, ?)").run(ticketChannel.id, interaction.user.id);
@@ -1480,17 +1494,27 @@ async function createTicketFromModal(interaction: ModalSubmitInteraction, catego
   if (evidenceLink) {
     intakeEmbed.addFields({ name: "Evidence link", value: evidenceLink });
   }
-  await ticketChannel.send({
-    content: `<@&${TICKET_ROLES[category]}>`,
-    embeds: [intakeEmbed],
-    components: [ticketControls()],
-    allowedMentions: { parse: [], roles: [TICKET_ROLES[category]], users: [interaction.user.id] },
-  });
-  await audit(interaction.client, "ticket opened", `Ticket <#${ticketChannel.id}> opened by <@${interaction.user.id}> for ${details.label}.`, {
-    guildId: guild.id,
-    actorId: interaction.user.id,
-    subjectId: ticketChannel.id,
-  });
+  try {
+    await ticketChannel.send({
+      content: `<@&${TICKET_ROLES[category]}>`,
+      embeds: [intakeEmbed],
+      components: [ticketControls()],
+      allowedMentions: { parse: [], roles: [TICKET_ROLES[category]], users: [interaction.user.id] },
+    });
+  } catch (error) {
+    database.prepare("DELETE FROM tickets WHERE channel_id = ?").run(ticketChannel.id);
+    await ticketChannel.delete("Ticket setup failed before the intake card was posted.");
+    throw error;
+  }
+  try {
+    await audit(interaction.client, "ticket opened", `Ticket <#${ticketChannel.id}> opened by <@${interaction.user.id}> for ${details.label}.`, {
+      guildId: guild.id,
+      actorId: interaction.user.id,
+      subjectId: ticketChannel.id,
+    });
+  } catch (error) {
+    console.error("Ticket opened, but its ticket log could not be delivered:", error);
+  }
   await editTicketModalReply(interaction, "Ticket created", `Your private ${details.label.toLowerCase()} ticket is ${ticketChannel}.`);
 }
 
