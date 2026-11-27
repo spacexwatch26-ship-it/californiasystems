@@ -1282,7 +1282,14 @@ test("moderator applications use the command channel, DM form, review actions, a
   assert.match(acceptedResultText, /Staff Application Accepted/);
   assert.match(acceptedResultText, /<:pin:1554160947013222541> \*\*Application Feedback\*\*/);
   assert.match(acceptedResultText, /Strong, thoughtful answers/);
-  assert.ok(applicantNotifications[0].payload.components[0].toJSON().components[0].content.includes(acceptanceId));
+  assert.doesNotMatch(acceptedResultText, /Request ID/);
+  const acceptedDM = applicantNotifications[0].payload;
+  const acceptedDMText = acceptedDM.components[0].toJSON().components
+    .filter((component) => component.type === 10)
+    .map((component) => component.content)
+    .join("\n");
+  assert.equal(acceptedDMText, acceptedResultText);
+  assert.deepEqual(acceptedDM.files.map((file) => file.name), resultsChannel.sent[0].payload.files.map((file) => file.name));
 
   const deniedInsert = database.prepare(`
     INSERT INTO moderator_applications (applicant_id, answers_json, submitted_at, review_message_id, review_page_message_ids)
@@ -1324,8 +1331,16 @@ test("moderator applications use the command channel, DM form, review actions, a
     .join("\n");
   assert.match(deniedResultText, /Staff Application Denied/);
   assert.doesNotMatch(deniedResultText, /whitelist/i);
+  assert.doesNotMatch(deniedResultText, /Request ID/);
   assert.match(deniedResultText, /<:pin:1554160947013222541> \*\*Application Feedback\*\*/);
   assert.match(deniedResultText, /Please gain more experience before reapplying/);
+  const deniedDM = applicantNotifications[1].payload;
+  const deniedDMText = deniedDM.components[0].toJSON().components
+    .filter((component) => component.type === 10)
+    .map((component) => component.content)
+    .join("\n");
+  assert.equal(deniedDMText, deniedResultText);
+  assert.deepEqual(deniedDM.files.map((file) => file.name), resultsChannel.sent[1].payload.files.map((file) => file.name));
   assert.equal(database.prepare("SELECT acceptance_id FROM moderator_applications WHERE id = ?").get(deniedId).acceptance_id, null);
 
   assert.equal(await closeModeratorApplications(mockClient), true);

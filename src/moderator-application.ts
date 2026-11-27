@@ -296,8 +296,7 @@ function validateAnswer(index: number, rawAnswer: string): string | undefined {
   return undefined;
 }
 
-async function sendApplicationResult(client: Client, application: ModeratorApplication): Promise<void> {
-  const channel = await fetchConfiguredTextChannel(client, config.applicationResultsChannelId, "application results");
+function createApplicationResultMessage(application: ModeratorApplication): MessageCreateOptions {
   const accepted = application.status === "accepted";
   const image = accepted ? ACCEPTED_IMAGE : DENIED_IMAGE;
   const imageDescription = accepted ? "Moderator application accepted" : "Moderator application denied";
@@ -309,8 +308,6 @@ async function sendApplicationResult(client: Client, application: ModeratorAppli
         `Congratulations, <@${application.applicant_id}>! Your staff application has been accepted. We appreciate your interest in helping the California State Roleplay community.`,
         ``,
         `**Application:** <@${application.applicant_id}>`,
-        `**Request ID:** ${applicationRequestId(application.id)}`,
-        ...(application.acceptance_id ? [`**Staff Request ID:** ${application.acceptance_id}`] : []),
         `**Reviewer:** <@${application.reviewed_by}>`,
         `**Decision date:** <t:${timestamp}:F>`,
       ].join("\n")
@@ -343,7 +340,7 @@ async function sendApplicationResult(client: Client, application: ModeratorAppli
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large))
     .addMediaGalleryComponents(bottomImageGallery());
-  await channel.send({
+  return {
     flags: MessageFlags.IsComponentsV2,
     components: [container],
     files: [
@@ -351,22 +348,18 @@ async function sendApplicationResult(client: Client, application: ModeratorAppli
       new AttachmentBuilder(resolve(process.cwd(), "assets", BOTTOM_IMAGE), { name: BOTTOM_IMAGE }),
     ],
     allowedMentions: { parse: [], users: [application.applicant_id] },
-  });
+  };
 }
 
-async function sendAcceptanceIdToApplicant(client: Client, application: ModeratorApplication): Promise<boolean> {
-  if (!application.acceptance_id) {
-    throw new Error(`Accepted application ${applicationRequestId(application.id)} is missing its staff request ID.`);
-  }
+async function sendApplicationResult(client: Client, application: ModeratorApplication): Promise<boolean> {
+  const channel = await fetchConfiguredTextChannel(client, config.applicationResultsChannelId, "application results");
+  await channel.send(createApplicationResultMessage(application));
   try {
     const applicant = await client.users.fetch(application.applicant_id);
-    await applicant.send(v2Message(
-      "Moderator Application Accepted",
-      `Your staff application was accepted. Your staff request ID is **${application.acceptance_id}**. Include this ID when opening a ticket to request staff onboarding.`,
-    ));
+    await applicant.send(createApplicationResultMessage(application));
     return true;
   } catch (error) {
-    console.error(`Could not DM the staff request ID for application ${applicationRequestId(application.id)}:`, error);
+    console.error(`Could not DM the staff application result for application ${applicationRequestId(application.id)}:`, error);
     return false;
   }
 }
@@ -641,8 +634,9 @@ export async function executeModeratorApplicationModal(interaction: ModalSubmitI
 
   let application = getModeratorApplication(id);
   if (!application) throw new Error(`Moderator application ${id} disappeared after review.`);
+  let resultDMDelivered = false;
   try {
-    await sendApplicationResult(interaction.client, application);
+    resultDMDelivered = await sendApplicationResult(interaction.client, application);
   } catch (error) {
     database.prepare(`
       UPDATE moderator_applications
@@ -654,9 +648,6 @@ export async function executeModeratorApplicationModal(interaction: ModalSubmitI
 
   application = getModeratorApplication(id);
   if (!application) throw new Error(`Moderator application ${id} disappeared after its result was sent.`);
-  const acceptanceDMDelivered = application.status !== "accepted"
-    ? true
-    : await sendAcceptanceIdToApplicant(interaction.client, application);
   let reviewCardUpdated = true;
   try {
     await updateReviewCard(interaction.client, application);
@@ -667,8 +658,7 @@ export async function executeModeratorApplicationModal(interaction: ModalSubmitI
   const statusText = application.status === "accepted" ? "Application Accepted" : "Application Denied";
   const response = [
     `The result was posted in <#${config.applicationResultsChannelId}> and the applicant was mentioned.`,
-    application.acceptance_id ? `Staff request ID: **${application.acceptance_id}**.` : "",
-    acceptanceDMDelivered ? "" : "The ID is visible in the results channel, but its DM could not be delivered.",
+    resultDMDelivered ? "The matching result was also sent to the applicant by DM." : "The applicant could not be DM'd; they were mentioned in the results channel.",
     reviewCardUpdated ? "" : "The review card could not be updated.",
   ].filter(Boolean).join(" ");
   await editV2Reply(interaction,
