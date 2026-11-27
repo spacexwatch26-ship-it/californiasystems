@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111522">
+    <title>California State Roleplay | Status</title>
+    <link rel="stylesheet" href="/site.css">
+    <script src="/site.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="California State Roleplay status home">
+        <span class="brand-mark" aria-hidden="true">CS</span>
+        <span>California State Roleplay<small>Community status</small></span>
+      </a>
+      <a class="header-link" href="/admin">Admin editor</a>
+    </header>
+
+    <main class="page-shell">
+      <section class="hero">
+        <p class="eyebrow">CALIFORNIA STATE ROLEPLAY</p>
+        <h1>Bot status &amp; development</h1>
+        <p class="hero-copy">The latest service status and project updates from the CSRP team.</p>
+      </section>
+
+      <section class="panel status-panel" aria-labelledby="status-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SERVICE STATUS</p>
+            <h2 id="status-heading">Current status</h2>
+          </div>
+          <span id="status-badge" class="status-badge" data-status="loading">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status-label">Loading</span>
+          </span>
+        </div>
+        <p id="status-message" class="status-message" aria-live="polite">Checking the latest status…</p>
+        <p id="status-updated" class="muted small"></p>
+      </section>
+
+      <section class="updates-section" aria-labelledby="updates-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">WHAT'S CHANGING</p>
+            <h2 id="updates-heading">Development updates</h2>
+          </div>
+          <span id="update-count" class="muted small"></span>
+        </div>
+        <div id="updates-list" class="updates-list" aria-live="polite">
+          <p class="muted">Loading updates…</p>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <span>California State Roleplay</span>
+        <span>Status refreshes automatically.</span>
+      </footer>
+    </main>
+  </body>
+</html>

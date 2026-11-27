@@ -7,7 +7,12 @@ import {
   type Message,
 } from "discord.js";
 import { config } from "./config.js";
-import { executeCommand, executeTicketButton } from "./commands.js";
+import {
+  executeCommand,
+  executeTicketButton,
+  executeTicketModal,
+  executeTicketSelectMenu,
+} from "./commands.js";
 import { executeShiftButton } from "./shifts.js";
 import { executeGuidelinesButton } from "./guidelines.js";
 import { database } from "./database.js";
@@ -311,15 +316,21 @@ client.on("messageReactionRemove", (reaction, user) => {
 
 client.on("interactionCreate", (interaction) => {
   if (interaction.isModalSubmit()) {
-    void executeModeratorApplicationModal(interaction).catch(async (error: unknown) => {
-      console.error("Moderator application review failed:", error);
+    void executeModeratorApplicationModal(interaction).then(async (handled) => {
+      if (!handled) await executeTicketModal(interaction);
+    }).catch(async (error: unknown) => {
+      console.error("Modal interaction failed:", error);
+      const response = {
+        ...v2Message("Submission failed", "This form could not be submitted. Please try again or contact staff."),
+        flags: v2Flags(true),
+      };
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ ...v2Message("Decision Not Completed", "The application decision could not be completed. Check the bot logs."), flags: v2Flags(true) }).catch((replyError: unknown) => {
-          console.error("Could not send moderator application decision error:", replyError);
+        await interaction.followUp(response).catch((replyError: unknown) => {
+          console.error("Could not send modal submission error:", replyError);
         });
       } else {
-        await interaction.reply({ ...v2Message("Decision Not Completed", "The application decision could not be completed. Check the bot logs."), flags: v2Flags(true) }).catch((replyError: unknown) => {
-          console.error("Could not send moderator application decision error:", replyError);
+        await interaction.reply(response).catch((replyError: unknown) => {
+          console.error("Could not send modal submission error:", replyError);
         });
       }
     });
@@ -330,8 +341,10 @@ client.on("interactionCreate", (interaction) => {
       guildId: interaction.guildId ?? undefined,
       actorId: interaction.user.id,
     });
-    void executeSessionAnnouncementSelect(interaction).catch((error: unknown) => {
-      console.error("Session announcement selection failed:", error);
+    void executeSessionAnnouncementSelect(interaction).then(async (handled) => {
+      if (!handled) await executeTicketSelectMenu(interaction);
+    }).catch((error: unknown) => {
+      console.error("Dropdown interaction failed:", error);
       if (!interaction.replied && !interaction.deferred) {
         void interaction.reply({ ...v2Message("Selection not applied", "The requested session option could not be applied. Check the bot permissions and server logs."), flags: v2Flags(true) }).catch((replyError: unknown) => {
           console.error("Could not send session selection response:", replyError);
@@ -343,7 +356,8 @@ client.on("interactionCreate", (interaction) => {
   if (interaction.isButton()) {
     const isShiftButton = interaction.customId.startsWith("shift:");
     const isApplicationButton = interaction.customId.startsWith("moderator-app:");
-    if (!isShiftButton && !isApplicationButton) {
+    const isTicketButton = interaction.customId.startsWith("ticket:");
+    if (!isShiftButton && !isApplicationButton && !isTicketButton) {
       logEvent("button interaction", `Button "${interaction.customId}" clicked by <@${interaction.user.id}> in <#${interaction.channelId}>.`, {
         guildId: interaction.guildId ?? undefined,
         actorId: interaction.user.id,

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111522">
+    <title>California State Roleplay | Admin</title>
+    <link rel="stylesheet" href="/site.css">
+    <script src="/admin.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="California State Roleplay status home">
+        <span class="brand-mark" aria-hidden="true">CS</span>
+        <span>California State Roleplay<small>Status editor</small></span>
+      </a>
+      <a class="header-link" href="/">View public page</a>
+    </header>
+
+    <main class="page-shell admin-shell">
+      <section class="hero">
+        <p class="eyebrow">ADMINISTRATION</p>
+        <h1>Manage status &amp; updates</h1>
+        <p class="hero-copy">Changes are saved to the bot's database and appear on the public status page.</p>
+      </section>
+
+      <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+      <section id="login-panel" class="panel login-panel" aria-labelledby="login-heading">
+        <h2 id="login-heading">Sign in to edit</h2>
+        <p class="muted">Use the dashboard password configured by the bot administrator.</p>
+        <form id="login-form" class="form-stack">
+          <label for="login-password">Dashboard password</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="button button-primary" type="submit">Sign in</button>
+        </form>
+      </section>
+
+      <section id="editor" class="editor-stack" hidden>
+        <div class="section-heading editor-title">
+          <div>
+            <p class="eyebrow">CONTROL PANEL</p>
+            <h2>Website content</h2>
+          </div>
+          <button id="logout-button" class="button button-quiet" type="button">Sign out</button>
+        </div>
+
+        <section class="panel" aria-labelledby="status-editor-heading">
+          <p class="eyebrow">SERVICE STATUS</p>
+          <h2 id="status-editor-heading">Update current status</h2>
+          <form id="status-form" class="form-stack">
+            <label for="status-select">Status</label>
+            <select id="status-select" name="status">
+              <option value="operational">Operational</option>
+              <option value="degraded">Degraded performance</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="offline">Offline</option>
+            </select>
+            <label for="status-message-input">Public message</label>
+            <textarea id="status-message-input" name="message" maxlength="500" rows="3"></textarea>
+            <button class="button button-primary" type="submit">Save status</button>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="update-editor-heading">
+          <p class="eyebrow">DEVELOPMENT UPDATES</p>
+          <h2 id="update-editor-heading">Post an update</h2>
+          <form id="update-form" class="form-stack">
+            <input id="update-id" name="id" type="hidden">
+            <label for="update-category">Category</label>
+            <select id="update-category" name="category">
+              <option value="development">Development</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="release">Release</option>
+            </select>
+            <label for="update-title">Title</label>
+            <input id="update-title" name="title" maxlength="120" required>
+            <label for="update-content">Details</label>
+            <textarea id="update-content" name="content" maxlength="4000" rows="6" required></textarea>
+            <div class="form-actions">
+              <button id="save-update-button" class="button button-primary" type="submit">Publish update</button>
+              <button id="cancel-edit-button" class="button button-quiet" type="button" hidden>Cancel edit</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="updates-section" aria-labelledby="manage-updates-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">PUBLISHED</p>
+              <h2 id="manage-updates-heading">Manage updates</h2>
+            </div>
+          </div>
+          <div id="admin-updates-list" class="updates-list">
+            <p class="muted">Loading updates…</p>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

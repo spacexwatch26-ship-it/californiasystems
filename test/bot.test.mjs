@@ -36,6 +36,7 @@ process.env.PUNISHMENT_CHANNEL_ID = punishmentChannelId;
 process.env.PUNISHMENT_LOG_CHANNEL_ID = punishmentLogChannelId;
 process.env.ERLC_SERVER_KEY = "test-server-key";
 process.env.WEBHOOK_SECRET = "test-webhook-secret-with-at-least-32-chars";
+process.env.STATUS_DASHBOARD_PASSWORD = "test-dashboard-password-1234";
 process.env.DATABASE_PATH = databasePath;
 
 const legacyDatabase = new DatabaseSync(databasePath);
@@ -76,7 +77,13 @@ legacyDatabase.exec(`
 `);
 legacyDatabase.close();
 
-const { executeCommand, getCommandData, SESSION_COMMAND_ROLE_ID } = await import("../dist/commands.js");
+const {
+  createTicketIntakeModal,
+  createTicketPanelMessage,
+  executeCommand,
+  getCommandData,
+  SESSION_COMMAND_ROLE_ID,
+} = await import("../dist/commands.js");
 const {
   createGuidelinesPanelMessage,
   executeGuidelinesButton,
@@ -152,6 +159,59 @@ test("bot messages are Components V2 with mentions disabled", () => {
   const panel = v2ButtonMessage("Tickets", "Open one", "Create ticket", "ticket:create");
   assert.ok((panel.flags & MessageFlags.IsComponentsV2) !== 0);
   assert.equal(panel.components?.[0]?.toJSON().components?.[1]?.type, 1);
+});
+
+test("ticket panel dropdown routes categories, pings support roles, and uses the updated footer", () => {
+  const panel = createTicketPanelMessage();
+  const embed = panel.embeds[0].toJSON();
+  const menu = panel.components[0].toJSON().components[0];
+  const categories = menu.options.map((option) => option.value);
+
+  assert.equal(menu.custom_id, "ticket:category");
+  assert.deepEqual(categories, ["general-support", "report-ticket", "partnership-ticket", "community-support"]);
+  assert.deepEqual(
+    menu.options.map((option) => option.emoji.id),
+    ["1554160947013222541", "1554160354408271912", "1554160299202846791", "1554160757757968405"],
+  );
+  assert.match(embed.description, /Welcome to the \*\*California State Roleplay Support Center\*\*/);
+  assert.match(embed.description, /Thank you for helping us keep \*\*California State Roleplay\*\* organized and professional/);
+  assert.doesNotMatch(embed.description, /Morse Roleplay/);
+  assert.deepEqual(panel.allowedMentions.roles, [
+    "1524688682702082159",
+    "1445540175341158611",
+    "1475565354838392842",
+    "1575701190124113941",
+  ]);
+  for (const roleId of panel.allowedMentions.roles) {
+    assert.ok(embed.description.includes(`<@&${roleId}>`));
+  }
+});
+
+test("ticket intake requires report answers and leaves evidence file/link optional", () => {
+  const report = createTicketIntakeModal("report-ticket").toJSON();
+  const rows = report.components;
+  const textInputs = rows
+    .filter((component) => component.type === 1)
+    .flatMap((row) => row.components);
+  const fileLabel = rows.find((component) => component.type === 18);
+  const upload = fileLabel.component;
+
+  assert.equal(report.custom_id, "ticket:submit:report-ticket");
+  assert.deepEqual(textInputs.map((input) => input.custom_id), ["reported_member", "report_reason", "evidence_link"]);
+  assert.equal(textInputs[0].required, true);
+  assert.equal(textInputs[1].required, true);
+  assert.equal(textInputs[2].required, false);
+  assert.equal(fileLabel.label, "Evidence file (optional)");
+  assert.equal(upload.custom_id, "evidence");
+  assert.equal(upload.required, false);
+  assert.equal(upload.min_values, 0);
+  assert.equal(upload.max_values, 3);
+
+  for (const category of ["general-support", "partnership-ticket", "community-support"]) {
+    const modal = createTicketIntakeModal(category).toJSON();
+    assert.ok(modal.components.every((row) => row.components.every((input) => input.required)));
+  }
+  assert.equal(createTicketIntakeModal("partnership-ticket").toJSON().components.length, 3);
 });
 
 test("guidelines panel includes private regulation readers and both Terms links", () => {
@@ -1156,6 +1216,114 @@ test("webhook keeps 911 calls in their channel and does not post game events", a
   });
   assert.equal(unauthorized.status, 401);
   assert.equal(delivered.length, 1);
+  await new Promise((resolve, reject) => {
+    webhookServer.close((error) => error ? reject(error) : resolve());
+  });
+  webhookServer = undefined;
+});
+
+test("status website serves public data and protects editable content", async () => {
+  const discordEventsBefore = database.prepare("SELECT COUNT(*) AS count FROM discord_events").get().count;
+  const gameEventsBefore = database.prepare("SELECT COUNT(*) AS count FROM game_events").get().count;
+  webhookServer = createWebhookServer({});
+  webhookServer.listen(0, "127.0.0.1");
+  await once(webhookServer, "listening");
+  const address = webhookServer.address();
+  assert.ok(address && typeof address !== "string");
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const homePage = await fetch(baseUrl);
+    assert.equal(homePage.status, 200);
+    assert.match(await homePage.text(), /Bot status &amp; development/);
+    const editorPage = await fetch(`${baseUrl}/admin`);
+    assert.equal(editorPage.status, 200);
+    assert.match(await editorPage.text(), /Sign in to edit/);
+
+    const initialDataResponse = await fetch(`${baseUrl}/api/status`);
+    assert.equal(initialDataResponse.status, 200);
+    const initialData = await initialDataResponse.json();
+    assert.equal(initialData.status.status, "operational");
+    assert.deepEqual(initialData.updates, []);
+
+    const unauthorizedEdit = await fetch(`${baseUrl}/api/admin/status`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "offline", message: "Unauthorized edit" }),
+    });
+    assert.equal(unauthorizedEdit.status, 401);
+
+    const rejectedLogin = await fetch(`${baseUrl}/api/admin/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "incorrect-password" }),
+    });
+    assert.equal(rejectedLogin.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/admin/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: process.env.STATUS_DASHBOARD_PASSWORD }),
+    });
+    assert.equal(login.status, 200);
+    const cookie = login.headers.get("set-cookie").split(";")[0];
+    const session = await fetch(`${baseUrl}/api/admin/session`, { headers: { cookie } });
+    assert.deepEqual(await session.json(), { authenticated: true });
+
+    const savedStatus = await fetch(`${baseUrl}/api/admin/status`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ status: "maintenance", message: "Scheduled maintenance tonight." }),
+    });
+    assert.equal(savedStatus.status, 200);
+    assert.equal((await savedStatus.json()).status.status, "maintenance");
+
+    const createdUpdate = await fetch(`${baseUrl}/api/admin/updates`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ title: "Website launch", content: "The status page is live.", category: "release" }),
+    });
+    assert.equal(createdUpdate.status, 201);
+    const created = (await createdUpdate.json()).update;
+    assert.equal(created.title, "Website launch");
+
+    const editedUpdate = await fetch(`${baseUrl}/api/admin/updates/${created.id}`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ title: "Website launch", content: "Status and development updates are editable.", category: "development" }),
+    });
+    assert.equal(editedUpdate.status, 200);
+    assert.equal((await editedUpdate.json()).update.category, "development");
+
+    const publicData = await fetch(`${baseUrl}/api/status`).then((response) => response.json());
+    assert.equal(publicData.status.message, "Scheduled maintenance tonight.");
+    assert.equal(publicData.updates[0].content, "Status and development updates are editable.");
+
+    const deletedUpdate = await fetch(`${baseUrl}/api/admin/updates/${created.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    });
+    assert.equal(deletedUpdate.status, 200);
+    const logout = await fetch(`${baseUrl}/api/admin/logout`, {
+      method: "POST",
+      headers: { cookie },
+    });
+    assert.equal(logout.status, 200);
+
+    const afterLogout = await fetch(`${baseUrl}/api/admin/status`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ status: "operational", message: "Not allowed" }),
+    });
+    assert.equal(afterLogout.status, 401);
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM discord_events").get().count, discordEventsBefore);
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM game_events").get().count, gameEventsBefore);
+  } finally {
+    await new Promise((resolve, reject) => {
+      webhookServer.close((error) => error ? reject(error) : resolve());
+    });
+    webhookServer = undefined;
+  }
 });
 
 test("session vote panel uses the supplied emoji and large separators", () => {

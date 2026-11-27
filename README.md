@@ -55,6 +55,16 @@ Set `ERLC_SERVER_KEY` in `.env` to show live ER:LC player and queue counts in
 session announcements. Keep this key private and never paste it into source
 control or chat.
 
+## Support tickets
+
+Administrators can use `/ticket-panel` to post the CSRP support-center embed and
+category dropdown. General Support, Report, Partnership, and Community Support
+each collect their required intake answers before creating a private ticket and
+notifying the assigned support role. Reporters may attach up to three evidence
+files or provide an optional link. Each ticket includes staff claim and close
+controls; claiming it posts the staff member's greeting. Staff can also manage
+tickets with `/claim`, `/add`, and `/close`.
+
 ## Moderator applications
 
 Administrators can use `/app-open` in the channel where the application panel

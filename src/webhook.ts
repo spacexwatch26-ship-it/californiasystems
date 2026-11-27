@@ -4,6 +4,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { saveGameEvent } from "./database.js";
 import { send911 } from "./logging.js";
+import { handleStatusSiteRequest } from "./status-site.js";
 import type { Client } from "discord.js";
 
 const payloadSchema = z.object({
@@ -42,6 +43,14 @@ export function createWebhookServer(client: Client): Server {
     if (request.method === "GET" && request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    try {
+      if (await handleStatusSiteRequest(request, response)) return;
+    } catch (error) {
+      console.error("Could not serve the status website request:", error);
+      respond(response, 500, "Could not serve the status website.");
       return;
     }
 

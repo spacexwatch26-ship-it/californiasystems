@@ -30,6 +30,27 @@ database.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS website_status (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    status TEXT NOT NULL DEFAULT 'operational'
+      CHECK (status IN ('operational', 'degraded', 'maintenance', 'offline')),
+    message TEXT NOT NULL DEFAULT 'All systems operational.',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT OR IGNORE INTO website_status (singleton) VALUES (1);
+
+  CREATE TABLE IF NOT EXISTS development_updates (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'development'
+      CHECK (category IN ('development', 'maintenance', 'release')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS development_updates_created
+    ON development_updates(created_at DESC, id DESC);
+
   CREATE TABLE IF NOT EXISTS tickets (
     channel_id TEXT PRIMARY KEY,
     opener_id TEXT NOT NULL,

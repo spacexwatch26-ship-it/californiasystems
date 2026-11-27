@@ -1,18 +1,29 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   ContainerBuilder,
   EmbedBuilder,
+  FileUploadBuilder,
+  LabelBuilder,
+  ModalBuilder,
   MessageFlags,
   PermissionFlagsBits,
   SeparatorBuilder,
   SeparatorSpacingSize,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
   TextDisplayBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Client,
   type GuildMember,
+  type ModalSubmitInteraction,
   type SlashCommandOptionsOnlyBuilder,
+  type StringSelectMenuInteraction,
 } from "discord.js";
 import { config } from "./config.js";
 import { database, listGameEvents, saveGameEvent } from "./database.js";
@@ -43,7 +54,7 @@ import {
   STAFF_ROLE_ID,
   type StaffShift,
 } from "./shifts.js";
-import { v2ButtonMessage, v2Flags, v2Message } from "./ui.js";
+import { v2Flags, v2Message } from "./ui.js";
 import { addCalendarMonths, createPunishmentMessage } from "./punishment.js";
 import { createGuidelinesPanelMessage } from "./guidelines.js";
 import { randomInt, randomUUID } from "node:crypto";
@@ -52,6 +63,56 @@ import { closeModeratorApplications, openModeratorApplications } from "./moderat
 type Command = SlashCommandOptionsOnlyBuilder;
 
 export const SESSION_COMMAND_ROLE_ID = "1573500103459741726";
+
+const TICKET_ROLES = {
+  "general-support": "1524688682702082159",
+  "report-ticket": "1445540175341158611",
+  "partnership-ticket": "1475565354838392842",
+  "community-support": "1575701190124113941",
+} as const;
+
+const TICKET_CATEGORIES = {
+  "general-support": {
+    label: "General Support",
+    description: "Questions, assistance, concerns, and community issues",
+    emoji: { id: "1554160947013222541", name: "pin" },
+    questions: [{ id: "assistance", label: "What do you need assistance with?" }],
+  },
+  "report-ticket": {
+    label: "Report Ticket",
+    description: "Report a staff member for misconduct or policy violations",
+    emoji: { id: "1554160354408271912", name: "hammer" },
+    questions: [
+      { id: "reported_member", label: "Who are you reporting? Include their ID" },
+      { id: "report_reason", label: "Why are you reporting this staff member?" },
+    ],
+  },
+  "partnership-ticket": {
+    label: "Partnership Ticket",
+    description: "Submit a partnership request for your community",
+    emoji: { id: "1554160299202846791", name: "partner" },
+    questions: [
+      { id: "server_name", label: "What is your server's name?" },
+      { id: "server_invite", label: "What is your server invite?" },
+      { id: "member_count", label: "How many members does it have?" },
+    ],
+  },
+  "community-support": {
+    label: "Community Support",
+    description: "Shop, giveaway, role, or leadership-related inquiries",
+    emoji: { id: "1554160757757968405", name: "crown" },
+    questions: [{ id: "assistance", label: "What do you need assistance with?" }],
+  },
+} as const;
+
+type TicketCategory = keyof typeof TICKET_CATEGORIES;
+
+const TICKET_PARENT_CATEGORIES: Record<TicketCategory, string> = {
+  "general-support": "1575701014974042172",
+  "report-ticket": "1575701661534658730",
+  "partnership-ticket": "1520720368950841414",
+  "community-support": "1520720565948776478",
+};
 
 const commandBuilders: Command[] = [];
 const commandActionDetails = new WeakMap<ChatInputCommandInteraction, string[]>();
@@ -299,9 +360,10 @@ async function requireGuildRole(
 
 async function isTicketStaff(interaction: ChatInputCommandInteraction): Promise<boolean> {
   if (isAdmin(interaction)) return true;
-  if (!config.ticketStaffRoleId || !interaction.guild) return false;
+  if (!interaction.guild) return false;
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  return member.roles.cache.has(config.ticketStaffRoleId);
+  const supportRoles = ticketStaffRoleIds();
+  return member.roles.cache.some((role) => supportRoles.has(role.id));
 }
 
 function recordStaffAction(
@@ -424,13 +486,26 @@ async function handleTicketCommand(interaction: ChatInputCommandInteraction, cli
       await reply(interaction, "Permission denied", "Only ticket staff can claim tickets.");
       return true;
     }
-    const result = database.prepare("UPDATE tickets SET claimed_by = ? WHERE channel_id = ? AND status = 'open'").run(interaction.user.id, channelId);
+    const result = database.prepare("UPDATE tickets SET claimed_by = ? WHERE channel_id = ? AND status = 'open' AND claimed_by IS NULL")
+      .run(interaction.user.id, channelId);
     if (Number(result.changes) === 0) {
-      await reply(interaction, "Ticket update failed", "The ticket is no longer open.");
+      const current = database.prepare("SELECT claimed_by FROM tickets WHERE channel_id = ?").get(channelId) as
+        | { claimed_by: string | null }
+        | undefined;
+      await reply(interaction, "Already claimed", current?.claimed_by
+        ? `This ticket is already claimed by <@${current.claimed_by}>.`
+        : "This ticket is no longer available to claim.");
       return true;
     }
+    const staffMember = interaction.guild
+      ? await interaction.guild.members.fetch(interaction.user.id)
+      : undefined;
+    if (!staffMember || !interaction.channel || !("send" in interaction.channel)) {
+      throw new Error("The claimed ticket channel or staff member could not be resolved.");
+    }
+    await interaction.channel.send(`*Greeting, I am **${staffMember.displayName}** and I will be assisting you today.*`);
     await auditAction(client, interaction, `Ticket <#${channelId}> claimed by <@${interaction.user.id}>.`);
-    await reply(interaction, "Ticket claimed", `Claimed by <@${interaction.user.id}>.`);
+    await reply(interaction, "Ticket claimed", `You are now assisting the member in <#${channelId}>.`);
     return true;
   }
 
@@ -1185,35 +1260,150 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
   await reply(interaction, "Not implemented", `/${commandName} is listed but needs server-specific setup before it can be enabled.`);
 }
 
+export function createTicketPanelMessage() {
+  const categories = Object.entries(TICKET_CATEGORIES) as Array<[TicketCategory, (typeof TICKET_CATEGORIES)[TicketCategory]]>;
+  const embed = new EmbedBuilder()
+    .setColor(0xe4b84b)
+    .setTitle("CALIFORNIA STATE ROLEPLAY | SUPPORT CENTER")
+    .setDescription([
+      "Welcome to the **California State Roleplay Support Center**.",
+      "Choose the option that best matches what you need. A private ticket will be created and the right team will be notified.",
+      "",
+      ...categories.map(([category, details]) => `${details.emoji.id ? `<:${details.emoji.name}:${details.emoji.id}>` : ""} **${details.label}** · <@&${TICKET_ROLES[category]}>`),
+      "",
+      "**Before opening a ticket**",
+      "• Open one ticket per issue and include clear, relevant details.",
+      "• Be respectful and keep sensitive information within your private ticket.",
+      "• For reports, provide a link or attach supporting evidence if available.",
+      "",
+      "*Thank you for helping us keep **California State Roleplay** organized and professional. Our staff will assist you as soon as possible.*",
+    ].join("\n"))
+    .setFooter({ text: "CSRP Support • Private, organized, and handled by our team" });
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("ticket:category")
+    .setPlaceholder("Select a ticket category")
+    .addOptions(categories.map(([category, details]) => ({
+      label: details.label,
+      description: details.description,
+      value: category,
+      emoji: details.emoji,
+    })));
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    allowedMentions: { parse: [], roles: [...new Set(Object.values(TICKET_ROLES))] },
+  };
+}
+
 async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
   const channel = interaction.channel;
   if (!channel || !("send" in channel)) {
     throw new Error("The ticket panel must be posted in a message channel.");
   }
-  await channel.send(v2ButtonMessage(
-    "California State Roleplay support",
-    "Press the button below to create a private support ticket.",
-    "Create ticket",
-    "ticket:create",
-  ));
+  await channel.send(createTicketPanelMessage());
 }
 
-export async function executeTicketButton(interaction: ButtonInteraction): Promise<void> {
-  if (interaction.customId !== "ticket:create") return;
+export function createTicketIntakeModal(category: TicketCategory): ModalBuilder {
+  const details = TICKET_CATEGORIES[category];
+  const modal = new ModalBuilder()
+    .setCustomId(`ticket:submit:${category}`)
+    .setTitle(`${details.label} Intake`)
+    .addComponents(...details.questions.map((question) =>
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(question.id)
+          .setLabel(question.label)
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    ));
+  if (category === "report-ticket") {
+    modal.addComponents(
+      new LabelBuilder()
+        .setLabel("Evidence file (optional)")
+        .setDescription("Attach up to three files. If you have a link, use the field below instead.")
+        .setFileUploadComponent(
+          new FileUploadBuilder()
+            .setCustomId("evidence")
+            .setRequired(false)
+            .setMinValues(0)
+            .setMaxValues(3),
+        ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("evidence_link")
+          .setLabel("Evidence link (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(1000),
+      ),
+    );
+  }
+  return modal;
+}
+
+export async function executeTicketSelectMenu(interaction: StringSelectMenuInteraction): Promise<boolean> {
+  if (interaction.customId !== "ticket:category") return false;
+  const category = interaction.values[0];
+  if (!category || !Object.hasOwn(TICKET_CATEGORIES, category)) {
+    await interaction.reply({ ...v2Message("Category unavailable", "Choose one of the ticket categories shown in the menu."), flags: v2Flags(true) });
+    return true;
+  }
+  await interaction.showModal(createTicketIntakeModal(category as TicketCategory));
+  return true;
+}
+
+function ticketControls(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId("ticket:claim").setLabel("Claim ticket").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Danger),
+  );
+}
+
+function ticketStaffRoleIds(): Set<string> {
+  const roles = new Set<string>(Object.values(TICKET_ROLES));
+  if (config.ticketStaffRoleId) roles.add(config.ticketStaffRoleId);
+  return roles;
+}
+
+async function isTicketStaffButton(interaction: ButtonInteraction): Promise<boolean> {
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+  if (!interaction.guild) return false;
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const roles = ticketStaffRoleIds();
+  return member.roles.cache.some((role) => roles.has(role.id));
+}
+
+async function editTicketButtonReply(interaction: ButtonInteraction, title: string, body: string): Promise<void> {
+  const message = v2Message(title, body);
+  if (!message.components || !message.allowedMentions) {
+    throw new Error("Could not build a Components V2 ticket response.");
+  }
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: message.components,
+    allowedMentions: message.allowedMentions,
+  });
+}
+
+async function editTicketModalReply(interaction: ModalSubmitInteraction, title: string, body: string): Promise<void> {
+  const message = v2Message(title, body);
+  if (!message.components || !message.allowedMentions) {
+    throw new Error("Could not build a Components V2 ticket response.");
+  }
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: message.components,
+    allowedMentions: message.allowedMentions,
+  });
+}
+
+async function createTicketFromModal(interaction: ModalSubmitInteraction, category: TicketCategory): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const editReply = async (title: string, body: string): Promise<void> => {
-    const message = v2Message(title, body);
-    if (!message.components || !message.allowedMentions) {
-      throw new Error("Could not build a Components V2 ticket response.");
-    }
-    await interaction.editReply({
-      flags: MessageFlags.IsComponentsV2,
-      components: message.components,
-      allowedMentions: message.allowedMentions,
-    });
-  };
-  if (!interaction.guild || interaction.guild.id !== config.guildId) {
-    await editReply("Ticket unavailable", "Tickets can only be opened in the configured server.");
+  const guild = interaction.guild;
+  if (!guild || guild.id !== config.guildId) {
+    await editTicketModalReply(interaction, "Ticket unavailable", "Tickets can only be opened in the configured server.");
     return;
   }
 
@@ -1221,43 +1411,144 @@ export async function executeTicketButton(interaction: ButtonInteraction): Promi
     | { channel_id: string }
     | undefined;
   if (existing) {
-    const channel = await interaction.guild.channels.fetch(existing.channel_id);
+    const channel = await guild.channels.fetch(existing.channel_id);
     if (channel) {
-      await editReply("Ticket already open", `Your current ticket is ${channel}.`);
+      await editTicketModalReply(interaction, "Ticket already open", `Your current ticket is ${channel}.`);
       return;
     }
     database.prepare("UPDATE tickets SET status = 'closed', closed_at = datetime('now') WHERE channel_id = ?").run(existing.channel_id);
   }
 
+  const details = TICKET_CATEGORIES[category];
+  const answers = details.questions.map((question) => ({
+    label: question.label,
+    value: interaction.fields.getTextInputValue(question.id).trim(),
+  }));
+  const evidence = category === "report-ticket"
+    ? interaction.fields.getUploadedFiles("evidence", false)
+    : null;
+  const evidenceLink = category === "report-ticket"
+    ? interaction.fields.getTextInputValue("evidence_link").trim()
+    : "";
   const slug = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 40);
-  const overwrites = [
-    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+  const permissionOverwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
     { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
     { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
-  ];
-  if (config.ticketStaffRoleId) {
-    overwrites.push({
-      id: config.ticketStaffRoleId,
+    ...[...new Set([TICKET_ROLES[category], config.ticketStaffRoleId].filter((roleId): roleId is string => Boolean(roleId)))].map((roleId) => ({
+      id: roleId,
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    });
-  }
-
-  const ticketChannel = await interaction.guild.channels.create({
-    name: `ticket-${slug || "member"}-${Date.now().toString(36)}`,
+    })),
+  ];
+  const ticketChannel = await guild.channels.create({
+    name: `ticket-${category}-${slug || "member"}-${Date.now().toString(36)}`,
     type: ChannelType.GuildText,
-    permissionOverwrites: overwrites,
+    parent: TICKET_PARENT_CATEGORIES[category],
+    permissionOverwrites,
   });
   database.prepare("INSERT INTO tickets (channel_id, opener_id) VALUES (?, ?)").run(ticketChannel.id, interaction.user.id);
-  await ticketChannel.send(v2Message(
-    "Support ticket",
-    `Welcome <@${interaction.user.id}>. Please describe what you need help with. Staff can claim this ticket, add another member, or close it when resolved.`,
-  ));
-  await audit(interaction.client, "ticket opened", `Ticket <#${ticketChannel.id}> opened by <@${interaction.user.id}>.`, {
-    guildId: interaction.guild.id,
+
+  const intakeEmbed = new EmbedBuilder()
+    .setColor(0xe4b84b)
+    .setTitle(`${details.label} | Ticket Intake`)
+    .setDescription(`Welcome <@${interaction.user.id}>. Your private support request is open.\n<@&${TICKET_ROLES[category]}>`)
+    .addFields(
+      { name: "Ticket category", value: details.label, inline: true },
+      { name: "Submitted by", value: `<@${interaction.user.id}>`, inline: true },
+      ...answers.map((answer) => ({ name: answer.label, value: answer.value || "Not provided", inline: false })),
+    )
+    .setFooter({ text: "A staff member can claim this ticket using the controls below." })
+    .setTimestamp();
+  if (evidence?.size) {
+    intakeEmbed.addFields({
+      name: "Attached evidence",
+      value: [...evidence.values()].map((attachment) => `[${attachment.name}](<${attachment.url}>)`).join("\n").slice(0, 1024),
+    });
+  }
+  if (evidenceLink) {
+    intakeEmbed.addFields({ name: "Evidence link", value: evidenceLink });
+  }
+  await ticketChannel.send({
+    embeds: [intakeEmbed],
+    components: [ticketControls()],
+    allowedMentions: { parse: [], roles: [TICKET_ROLES[category]], users: [interaction.user.id] },
+  });
+  await audit(interaction.client, "ticket opened", `Ticket <#${ticketChannel.id}> opened by <@${interaction.user.id}> for ${details.label}.`, {
+    guildId: guild.id,
     actorId: interaction.user.id,
     subjectId: ticketChannel.id,
   });
-  await editReply("Ticket created", `Your private support ticket is ${ticketChannel}.`);
+  await editTicketModalReply(interaction, "Ticket created", `Your private ${details.label.toLowerCase()} ticket is ${ticketChannel}.`);
+}
+
+export async function executeTicketModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+  const match = /^ticket:submit:(general-support|report-ticket|partnership-ticket|community-support)$/.exec(interaction.customId);
+  if (!match) return false;
+  await createTicketFromModal(interaction, match[1] as TicketCategory);
+  return true;
+}
+
+export async function executeTicketButton(interaction: ButtonInteraction): Promise<boolean> {
+  if (interaction.customId === "ticket:create") {
+    await interaction.reply({ ...v2Message("Choose a category", "Use the dropdown in the support panel to select the right ticket type."), flags: v2Flags(true) });
+    return true;
+  }
+  if (interaction.customId !== "ticket:claim" && interaction.customId !== "ticket:close") return false;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const ticket = database.prepare("SELECT opener_id, claimed_by, status FROM tickets WHERE channel_id = ?").get(interaction.channelId) as
+    | { opener_id: string; claimed_by: string | null; status: string }
+    | undefined;
+  if (!ticket || ticket.status !== "open" || !interaction.guild) {
+    await editTicketButtonReply(interaction, "Ticket unavailable", "This control only works in an open support ticket.");
+    return true;
+  }
+
+  if (interaction.customId === "ticket:claim") {
+    if (!(await isTicketStaffButton(interaction))) {
+      await editTicketButtonReply(interaction, "Permission denied", "Only ticket staff can claim tickets.");
+      return true;
+    }
+    const result = database.prepare("UPDATE tickets SET claimed_by = ? WHERE channel_id = ? AND status = 'open' AND claimed_by IS NULL")
+      .run(interaction.user.id, interaction.channelId);
+    if (Number(result.changes) === 0) {
+      const current = database.prepare("SELECT claimed_by FROM tickets WHERE channel_id = ?").get(interaction.channelId) as
+        | { claimed_by: string | null }
+        | undefined;
+      await editTicketButtonReply(interaction, "Already claimed", current?.claimed_by
+        ? `This ticket is already claimed by <@${current.claimed_by}>.`
+        : "This ticket is no longer available to claim.");
+      return true;
+    }
+    const staffMember = await interaction.guild.members.fetch(interaction.user.id);
+    if (!interaction.channel || !("send" in interaction.channel)) {
+      throw new Error("The claimed ticket channel cannot send messages.");
+    }
+    await interaction.channel.send(`*Greeting, I am **${staffMember.displayName}** and I will be assisting you today.*`);
+    await audit(interaction.client, "ticket claimed", `Ticket <#${interaction.channelId}> claimed by <@${interaction.user.id}>.`, {
+      guildId: interaction.guild.id,
+      actorId: interaction.user.id,
+      subjectId: interaction.channelId,
+    });
+    await editTicketButtonReply(interaction, "Ticket claimed", `You are now assisting the member in <#${interaction.channelId}>.`);
+    return true;
+  }
+
+  if (!(await isTicketStaffButton(interaction)) && ticket.opener_id !== interaction.user.id) {
+    await editTicketButtonReply(interaction, "Permission denied", "Only the ticket opener or ticket staff can close this ticket.");
+    return true;
+  }
+  database.prepare("UPDATE tickets SET status = 'closed', closed_at = datetime('now') WHERE channel_id = ?").run(interaction.channelId);
+  const channel = interaction.channel;
+  if (channel && "permissionOverwrites" in channel) {
+    await channel.permissionOverwrites.edit(ticket.opener_id, { SendMessages: false });
+  }
+  await audit(interaction.client, "ticket closed", `Ticket <#${interaction.channelId}> closed by <@${interaction.user.id}>.`, {
+    guildId: interaction.guild.id,
+    actorId: interaction.user.id,
+    subjectId: interaction.channelId,
+  });
+  await editTicketButtonReply(interaction, "Ticket closed", "This support ticket has been closed.");
+  return true;
 }
 
 export function getCommandData(): Command[] {

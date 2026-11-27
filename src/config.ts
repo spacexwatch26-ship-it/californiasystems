@@ -35,6 +35,7 @@ const schema = z.object({
   ERLC_SERVER_KEY: optionalEnvValue,
   TICKET_STAFF_ROLE_ID: z.string().optional(),
   WEBHOOK_SECRET: z.string().min(32),
+  STATUS_DASHBOARD_PASSWORD: optionalEnvValue,
   WEBHOOK_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_PATH: z.string().default("./data/california-systems.sqlite"),
 });
@@ -58,6 +59,11 @@ const punishmentChannelId = result.data.PUNISHMENT_CHANNEL_ID || DEFAULT_PUNISHM
 const punishmentLogChannelId = result.data.PUNISHMENT_LOG_CHANNEL_ID || DEFAULT_PUNISHMENT_LOG_CHANNEL_ID;
 if (punishmentChannelId === punishmentLogChannelId) {
   throw new Error("PUNISHMENT_CHANNEL_ID and PUNISHMENT_LOG_CHANNEL_ID must be different channels.");
+}
+
+const statusDashboardPassword = result.data.STATUS_DASHBOARD_PASSWORD;
+if (statusDashboardPassword && statusDashboardPassword.length < 20) {
+  throw new Error("STATUS_DASHBOARD_PASSWORD must be at least 20 characters when configured.");
 }
 
 export const config = {
@@ -84,6 +90,7 @@ export const config = {
   erlcServerKey: result.data.ERLC_SERVER_KEY || undefined,
   ticketStaffRoleId: result.data.TICKET_STAFF_ROLE_ID || undefined,
   webhookSecret: result.data.WEBHOOK_SECRET,
+  statusDashboardPassword,
   webhookPort: result.data.WEBHOOK_PORT,
   databasePath: result.data.DATABASE_PATH,
 };
