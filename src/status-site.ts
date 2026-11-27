@@ -81,7 +81,9 @@ function requestPath(request: IncomingMessage): string {
 }
 
 function isJsonRequest(request: IncomingMessage): boolean {
-  return request.headers["content-type"]?.split(";")[0].trim().toLowerCase() === "application/json";
+  const contentType = request.headers["content-type"];
+  return typeof contentType === "string"
+    && contentType.split(";")[0]?.trim().toLowerCase() === "application/json";
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
@@ -170,9 +172,11 @@ function isAuthenticated(request: IncomingMessage): boolean {
 }
 
 function secureCookie(request: IncomingMessage): boolean {
-  return request.headers["x-forwarded-proto"]
+  const forwardedProto = request.headers["x-forwarded-proto"];
+  const firstProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  return firstProto
     ?.split(",")[0]
-    .trim()
+    ?.trim()
     .toLowerCase() === "https";
 }
 
