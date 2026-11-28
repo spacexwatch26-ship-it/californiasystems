@@ -567,6 +567,11 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
     commandName: "punish",
     user: { id: "punishment-issuer" },
     guildId: "test-guild",
+    guild: {
+      members: {
+        fetch: async () => ({ roles: { cache: { has: (roleId) => roleId === INTERNAL_AFFAIRS_ROLE_ID } } }),
+      },
+    },
     memberPermissions: { has: () => true },
     options: {
       getUser: () => target,
@@ -629,6 +634,11 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
     commandName: "punish",
     user: { id: "punishment-issuer" },
     guildId: "test-guild",
+    guild: {
+      members: {
+        fetch: async () => ({ roles: { cache: { has: (roleId) => roleId === INTERNAL_AFFAIRS_ROLE_ID } } }),
+      },
+    },
     memberPermissions: { has: () => true },
     options: {
       getUser: () => terminationTarget,
@@ -646,6 +656,31 @@ test("/punish posts a branded V2 card and privately returns a unique ID", async 
   assert.equal(database.prepare("SELECT expires_at FROM staff_records WHERE punishment_id = ?").get(terminationId).expires_at, null);
   assert.notEqual(terminationId, punishmentId);
   assert.match(terminationReplies[0].components[0].toJSON().components[0].content, new RegExp(terminationId));
+});
+
+test("punishment commands require the Internal Affairs role even for administrators", async () => {
+  const replies = [];
+  const sent = [];
+  await executeCommand({
+    commandName: "punish",
+    user: { id: "not-internal-affairs" },
+    guildId: "test-guild",
+    guild: {
+      members: {
+        fetch: async () => ({ roles: { cache: { has: () => false } } }),
+      },
+    },
+    memberPermissions: { has: () => true },
+    options: {
+      getUser: () => ({ id: "punishment-target", tag: "Target#0001" }),
+      getString: (name) => name === "type" ? "Written Warning" : "Test reason",
+    },
+    client: { channels: { fetch: async () => ({ send: async (message) => sent.push(message) }) } },
+    reply: async (payload) => replies.push(payload),
+  }, []);
+
+  assert.equal(sent.length, 0);
+  assert.match(replies[0].components[0].toJSON().components[0].content, /Only Internal Affairs can use punishment commands/);
 });
 
 test("session-end announcement matches the branded session card and offers notification opt-in", () => {

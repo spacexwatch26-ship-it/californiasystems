@@ -1077,7 +1077,7 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
   }
 
   if (commandName === "punish") {
-    if (!(await requireAdmin(interaction))) return;
+    if (!(await requireGuildRole(interaction, INTERNAL_AFFAIRS_ROLE_ID, "Only Internal Affairs can use punishment commands."))) return;
     const member = interaction.options.getUser("member", true);
     const punishmentType = interaction.options.getString("type", true);
     const reason = interaction.options.getString("reason", true);
@@ -1129,14 +1129,14 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
   }
 
   if (commandName === "punishment-history") {
-    if (!(await requireAdmin(interaction))) return;
+    if (!(await requireGuildRole(interaction, INTERNAL_AFFAIRS_ROLE_ID, "Only Internal Affairs can use punishment commands."))) return;
     const member = interaction.options.getUser("member", true);
     await reply(interaction, `Punishment history for ${member.username}`, formatRecords(records("punish", member.id)));
     return;
   }
 
   if (commandName === "punishment-edit") {
-    if (!(await requireAdmin(interaction))) return;
+    if (!(await requireGuildRole(interaction, INTERNAL_AFFAIRS_ROLE_ID, "Only Internal Affairs can use punishment commands."))) return;
     const id = interaction.options.getInteger("record", true);
     const reason = interaction.options.getString("reason", true);
     const result = database.prepare("UPDATE staff_records SET reason = ? WHERE id = ? AND record_type = 'punish' AND status = 'active'").run(reason, id);
@@ -1146,7 +1146,7 @@ async function executeCommandImplementation(interaction: ChatInputCommandInterac
   }
 
   if (commandName === "punishment-void") {
-    if (!(await requireAdmin(interaction))) return;
+    if (!(await requireGuildRole(interaction, INTERNAL_AFFAIRS_ROLE_ID, "Only Internal Affairs can use punishment commands."))) return;
     const id = interaction.options.getInteger("record", true);
     const result = database.prepare("UPDATE staff_records SET status = 'void', revoked_at = datetime('now') WHERE id = ? AND status = 'active'").run(id);
     await auditAction(interaction.client, interaction, `Punishment record #${id} voided.`);
